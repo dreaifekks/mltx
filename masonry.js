@@ -174,7 +174,8 @@
       total: 0,
       dirty: true,
       group: null, // conversation or module being placed: { last | module, col, member }
-      frontHeight: [], // new-at-the-top batch: height taken in each column
+      frontBatch: new Set(), // cards of the new-at-the-top batch still being placed
+      frontHeight: [], // height the batch has taken in each column, rebuilt from frontBatch
       frontCount: [], // ...and how many cards, which is where the next one goes
       joinsNext: new Set(), // cards whose next card in the column is joined to them
       requested: new Set(), // unplaced cards the board has asked X to mount
@@ -204,10 +205,24 @@
 
   const shortest = (values) => values.reduce((best, v, i) => (v < values[best] ? i : best), 0);
 
-  function resetFront(b) {
-    b.frontHeight = b.columns.map(() => 0);
-    b.frontCount = b.columns.map(() => 0);
+  // The batch sits at the head of each column. Working this out from its members
+  // holds up when one is dropped, the columns are re-dealt, or the batch pauses.
+  function rebuildFront(b) {
+    b.frontCount = b.columns.map((col) => {
+      let n = 0;
+      while (n < col.length && b.frontBatch.has(col[n])) n++;
+      return n;
+    });
+    b.frontHeight = b.columns.map((col, c) => {
+      let h = 0;
+      for (let i = 0; i < b.frontCount[c]; i++) h += b.heights.get(col[i]) || 0;
+      return h;
+    });
   }
+
+  const endGroupAt = (b, id) => {
+    if (b.group && id === b.group.last) b.group = null;
+  };
 
   function placeCard(b, id, atFront) {
     const g = b.group;
@@ -227,6 +242,7 @@
     }
     if (atFront) {
       b.columns[col].splice(b.frontCount[col], 0, id);
+      b.frontBatch.add(id);
       b.frontCount[col]++;
       b.frontHeight[col] += b.heights.get(id) || 0;
     } else {
@@ -253,35 +269,45 @@
     const lastPlaced = lastPlacedIndex(b, list);
     let placedAny = false;
     let frontPending = false;
-    if (b.frontCount.length !== b.columns.length) resetFront(b);
+    let waiting = null;
+    rebuildFront(b);
     for (let k = 0; k < list.length; k++) {
       const id = list[k].id;
       if (b.placed.has(id) || NOT_A_CARD.test(id)) continue;
       const atFront = k < lastPlaced;
-      if (atFront && farFromTop(b)) continue;
+      if (atFront && farFromTop(b)) {
+        frontPending = true; // paused, not finished
+        continue;
+      }
       if (b.skipped.has(id)) {
-        if ((b.heights.get(id) || 0) <= 1) continue;
+        if ((b.heights.get(id) || 0) <= 1) {
+          endGroupAt(b, id);
+          continue;
+        }
         b.skipped.delete(id);
       }
       const seen = b.seen.get(id);
       if (!seen || seen.frames < SETTLE_FRAMES) {
         if (atFront) frontPending = true;
         // Only a card that was asked for can stall; the rest just aren't due yet.
-        if (!b.requested.has(id)) {
-          b.stallId = null;
-          break;
-        }
+        if (!b.requested.has(id)) break;
         if (b.stallId !== id) {
           b.stallId = id;
           b.stallFrames = 0;
         }
-        if (++b.stallFrames < STALL_FRAMES) break;
-        b.stallId = null;
+        if (++b.stallFrames < STALL_FRAMES) {
+          waiting = id;
+          break;
+        }
         b.skipped.add(id); // X never rendered it; don't let it hold up the rest
+        endGroupAt(b, id);
         continue;
       }
       const m = CONVERSATION.exec(id);
-      if (m) b.group = b.placed.has(`tweet-${m[1]}`) ? null : { last: `tweet-${m[1]}`, col: null };
+      if (m) {
+        const last = `tweet-${m[1]}`;
+        b.group = b.placed.has(last) || b.skipped.has(last) ? null : { last, col: null };
+      }
       const mod = MODULE.exec(id);
       if (mod && !(b.group && b.group.module === mod[1])) b.group = { module: mod[1], col: null };
       else if (!mod && b.group && b.group.module) b.group = null;
@@ -291,10 +317,10 @@
         placeCard(b, id, atFront);
         placedAny = true;
       }
-      if (b.group && id === b.group.last) b.group = null;
+      endGroupAt(b, id);
     }
-    // A new-at-the-top batch can take several frames; its insertion point lasts until it's done.
-    if (!frontPending) resetFront(b);
+    if (waiting === null) b.stallId = null;
+    if (!frontPending) b.frontBatch.clear();
     return placedAny;
   }
 
@@ -311,7 +337,6 @@
       b.columns[col].push(id);
       bottoms[col] += (b.heights.get(id) || 0) + GAP;
     }
-    resetFront(b);
     const g = b.group;
     if (g && g.member) g.col = b.placed.get(g.member).col;
     b.dirty = true;
