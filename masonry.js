@@ -33,6 +33,9 @@
   const ATTACH_TIMEOUT = 8000; // ms on /home without a list before giving up
   const COLS_KEY = "xm-cols";
   const NAV_KEY = "xm-nav";
+  const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
+  const NAV_LABELS_MIN_WINDOW = 1265; // X draws its rail labels from about this wide
+  const PANEL_CACHE = 3; // side-panel pages kept alive
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -62,6 +65,11 @@
   let navBtn = null;
   let tabsCloseTimer = 0;
   let tabsClicked = false; // something inside the list was clicked, so a popup may be its own
+  let panelEl = null;
+  let panelScrim = null;
+  let panelHref = null; // the page showing, or null when closed
+  let panelLink = null;
+  const panelFrames = new Map(); // href -> iframe, least recently used first
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -408,7 +416,7 @@
     const key = String(S.props.cacheKey);
     const board = boardFor(key);
     board.restoreFrames = board.y > 0 ? 40 : 0;
-    current = { S, el, vp, st, key, board };
+    current = { S, el, vp, st, key, board, attachedAt: performance.now() };
     S._scheduleCriticalUpdate();
   }
 
@@ -421,6 +429,7 @@
     const props = S.props;
     Object.defineProperty(S, "props", { configurable: true, enumerable: true, writable: true, value: props });
     el.removeAttribute("data-xm-board");
+    root.removeAttribute("data-xm-ready");
     for (const cell of el.children) {
       cell.style.translate = "";
       delete cell.__xm;
@@ -580,8 +589,11 @@
     // are positioned from the logo. They sit under X's dialogs that way.
     if (!tabsBtn) {
       tabsBtn = makeButton("xm-tabs-btn", "Timelines", ICON_LIST);
-      tabsBtn.addEventListener("click", () => setTabsOpen(!root.hasAttribute("data-xm-tabs-open")));
-      navBtn = makeButton("xm-nav-btn", "Expand or collapse the sidebar", ICON_CHEVRON);
+      tabsBtn.addEventListener("click", () => {
+        closePanel();
+        setTabsOpen(!root.hasAttribute("data-xm-tabs-open"));
+      });
+      navBtn = makeButton("xm-nav-btn", "", ICON_CHEVRON);
       navBtn.addEventListener("click", () => {
         navOpen = !navOpen;
         if (navOpen) localStorage.setItem(NAV_KEY, "open");
@@ -600,6 +612,14 @@
     setVar("--xm-rail", header.offsetWidth + "px");
     setVar("--xm-slot-top", Math.round(r.bottom) + "px");
     setVar("--xm-slot-left", Math.round(r.left + r.width / 2 - 22) + "px");
+    setVar("--xm-logo-top", Math.round(r.top) + "px");
+    setVar("--xm-logo-left", Math.round(r.left) + "px");
+    setVar("--xm-logo-size", Math.round(r.width) + "px");
+    const tip = navOpen ? "收起侧边栏" : "展开侧边栏";
+    if (navBtn.dataset.tip !== tip) {
+      navBtn.dataset.tip = tip;
+      navBtn.setAttribute("aria-label", tip);
+    }
 
     // The tab bar only moves if its parts are where they were expected. Otherwise it stays on top.
     const list = pc.querySelector('[role="tablist"]');
@@ -632,8 +652,12 @@
     "pointerover",
     (e) => {
       if (e.pointerType === "touch" || !e.target.closest) return;
-      if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) setTabsOpen(true);
-      else scheduleTabsClose();
+      // With the panel open this is a click away, or passing over the icon would cover it.
+      if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) {
+        if (!panelHref) setTabsOpen(true);
+      } else {
+        scheduleTabsClose();
+      }
     },
     { capture: true, passive: true },
   );
@@ -646,6 +670,90 @@
   );
   root.addEventListener("pointerleave", scheduleTabsClose, { passive: true });
   addEventListener("blur", scheduleTabsClose);
+
+  // ---- side panel ----------------------------------------------------------
+
+  // The rail's links open as a sheet over the feed, which stays mounted underneath.
+  // Each page is its own iframe and stays alive when hidden, so its icon brings it
+  // back as it was. frame-rules.json lets x.com frame itself; nothing else can.
+  function buildPanel() {
+    if (panelEl && panelEl.isConnected) return;
+    panelEl = document.createElement("div");
+    panelEl.id = "xm-panel";
+    panelScrim = document.createElement("div");
+    panelScrim.id = "xm-panel-scrim";
+    panelScrim.addEventListener("click", closePanel);
+    document.body.append(panelEl, panelScrim);
+  }
+
+  function markLink(link) {
+    if (panelLink) panelLink.removeAttribute("data-xm-active");
+    panelLink = link;
+    if (link) link.setAttribute("data-xm-active", "");
+  }
+
+  function openPanel(href, link) {
+    buildPanel();
+    let frame = panelFrames.get(href);
+    if (frame) {
+      panelFrames.delete(href);
+    } else {
+      frame = document.createElement("iframe");
+      // No allow-top-navigation: a page in the panel can't navigate the feed away.
+      frame.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
+      frame.setAttribute("allow", "autoplay; fullscreen; clipboard-write; encrypted-media");
+      frame.src = href;
+      panelEl.append(frame);
+    }
+    panelFrames.set(href, frame);
+    for (const f of panelFrames.values()) f.toggleAttribute("data-xm-shown", f === frame);
+    for (const [h, f] of panelFrames) {
+      if (panelFrames.size <= PANEL_CACHE) break;
+      if (f !== frame) {
+        f.remove();
+        panelFrames.delete(h);
+      }
+    }
+    panelHref = href;
+    markLink(link);
+    setTabsOpen(false);
+    root.setAttribute("data-xm-panel-open", "");
+  }
+
+  function closePanel() {
+    panelHref = null;
+    markLink(null);
+    root.removeAttribute("data-xm-panel-open");
+  }
+
+  addEventListener(
+    "click",
+    (e) => {
+      const t = e.target;
+      if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
+      const header = t.closest('header[role="banner"]');
+      if (!header || t.closest("#xm-tabs-btn, #xm-nav-btn")) return;
+      const link = t.closest("nav a[href]");
+      // Home is the feed; everything else in the rail (post, more, account) opens over it.
+      if (!link || link.matches('[data-testid="AppTabBar_Home_Link"]')) {
+        if (panelHref) {
+          closePanel();
+          if (link) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const href = link.getAttribute("href");
+      if (href === panelHref) closePanel();
+      else openPanel(href, link);
+    },
+    true,
+  );
 
   function toggleAttr(name, on) {
     if (on && !root.hasAttribute(name)) root.setAttribute(name, "");
@@ -677,6 +785,8 @@
       if (current) detach();
       if (root.hasAttribute("data-xm-on")) root.removeAttribute("data-xm-on");
       if (root.hasAttribute("data-xm-tabs-open")) setTabsOpen(false);
+      if (panelHref) closePanel();
+      root.removeAttribute("data-xm-ready");
       return;
     }
     if (!root.hasAttribute("data-xm-on")) root.setAttribute("data-xm-on", "");
@@ -748,6 +858,7 @@
     requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
     placeCells(c, colw);
     if (!c.el.hasAttribute("data-xm-board")) c.el.setAttribute("data-xm-board", "");
+    if (b.placed.size > 0 || performance.now() - c.attachedAt > READY_TIMEOUT) toggleAttr("data-xm-ready", true);
     const busy = moved || b.y !== yBefore || b.anchor || b.restoreFrames > 0 || b.stallId !== null;
     quietFrames = busy ? 0 : quietFrames + 1;
     errors = 0;
@@ -811,6 +922,13 @@
       },
       { capture: true, passive: true },
     );
+  }
+
+  // At document_start, so X's single-column page never gets a first paint.
+  if (isHome() && (innerWidth === 0 || innerWidth >= MIN_WINDOW)) {
+    root.setAttribute("data-xm-on", "");
+    homeSince = performance.now();
+    if (navOpen && innerWidth >= NAV_LABELS_MIN_WINDOW) root.setAttribute("data-xm-nav", "open");
   }
 
   requestAnimationFrame(frame);

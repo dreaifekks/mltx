@@ -14,8 +14,12 @@ masonry that fills the window. Every other page stays as X renders it.
 - `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. The choice is
   stored in `localStorage` under `xm-cols`.
 - Timelines (For you, Following, pinned lists): hover the list icon under the X logo.
-- The small handle on the rail's edge expands and collapses the sidebar. X only
-  draws labels in windows about 1265px or wider, so narrower ones have no handle.
+- Hover the X logo and click to expand or collapse the sidebar. X only draws labels
+  in windows about 1265px or wider, so narrower ones keep the plain logo.
+- The rail's links open in a sheet over the feed. Clicking outside it goes back, and
+  clicking the icon again brings the page back as it was. The 3 most recently used
+  pages stay alive; each is a full X page in an iframe, so they cost memory.
+- `frame-rules.json` removes `X-Frame-Options` only for x.com framed by x.com.
 - The post box is gone from the timeline. The rail's + button opens the composer.
 
 ## How it works

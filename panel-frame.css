@@ -1,0 +1,19 @@
+/* X's own page inside the side panel: just the content column. */
+
+html[data-xm-panel] header[role="banner"],
+html[data-xm-panel] [data-testid="sidebarColumn"],
+html[data-xm-panel] [data-testid="GrokDrawer"],
+html[data-xm-panel] [data-testid="chat-drawer-root"] {
+  display: none !important;
+}
+
+html[data-xm-panel] main :is([data-testid="primaryColumn"], :has([data-testid="primaryColumn"])) {
+  width: 100% !important;
+  max-width: none !important;
+  flex-grow: 1 !important;
+}
+
+html[data-xm-panel] [data-testid="primaryColumn"] {
+  border-left-width: 0 !important;
+  border-right-width: 0 !important;
+}

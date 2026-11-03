@@ -5,6 +5,18 @@ html[data-xm-on] {
   overflow-anchor: none;
 }
 
+/* ---- Before the first card is placed: nothing of X's single column shows. -- */
+
+html[data-xm-on]:not([data-xm-ready]) [data-testid="primaryColumn"] > div > div:first-child:not([data-xm-tabbar]) {
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+}
+
+html[data-xm-on]:not([data-xm-ready]) [data-testid="primaryColumn"] section[role="region"] {
+  visibility: hidden !important;
+}
+
 /* ---- Right column: gone. Primary column: as wide as the window allows. ---- */
 
 html[data-xm-on] [data-testid="sidebarColumn"] {
@@ -61,42 +73,89 @@ html[data-xm-on][data-xm-tabs-open] [data-xm-tabs] {
   flex-direction: column !important;
   position: fixed !important;
   top: var(--xm-slot-top, 56px);
-  left: calc(var(--xm-rail, 72px) + 6px);
-  width: 260px !important;
+  left: calc(var(--xm-rail, 72px) + 4px);
+  width: max-content !important;
+  min-width: 112px;
+  max-width: 240px;
   max-height: calc(100vh - var(--xm-slot-top, 56px) - 12px);
   overflow-y: auto;
-  border-radius: 16px;
+  padding: 4px;
+  border-radius: 12px;
   background: var(--xm-bg, #000);
-  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54)), 0 8px 28px rgb(0 0 0 / 0.45);
-}
-
-html[data-xm-on] [data-xm-tabs] > div:first-child,
-html[data-xm-on] [data-xm-tabs] nav,
-html[data-xm-on] [data-xm-tabs] nav > div {
-  width: 100% !important;
-  max-width: none !important;
+  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54)), 0 6px 20px rgb(0 0 0 / 0.45);
 }
 
 html[data-xm-on] [data-xm-tabs] :is([data-testid="ScrollSnap-prevButtonWrapper"], [data-testid="ScrollSnap-nextButtonWrapper"]) {
   display: none !important;
 }
 
+html[data-xm-on] [data-xm-tabs] > div,
+html[data-xm-on] [data-xm-tabs] nav,
+html[data-xm-on] [data-xm-tabs] nav > div,
 html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-SwipeableList"] {
+  width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  flex: 0 0 auto !important;
   overflow: visible !important;
-  width: 100% !important;
 }
 
 html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-List"] {
+  display: flex !important;
   flex-direction: column !important;
   overflow: visible !important;
   transform: none !important;
-  width: 100% !important;
+  width: auto !important;
+  height: auto !important;
 }
 
 html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-List"] > [role="presentation"] {
   flex: 0 0 auto !important;
-  width: 100% !important;
+  width: auto !important;
   max-width: none !important;
+  height: auto !important;
+}
+
+html[data-xm-on] [data-xm-tabs] [role="tab"] {
+  display: block !important;
+  height: auto !important;
+  padding: 0 !important;
+  border-radius: 8px;
+}
+
+html[data-xm-on] [data-xm-tabs] [role="tab"]:hover,
+html[data-xm-on] [data-xm-tabs] [role="tab"][aria-selected="true"] {
+  background: color-mix(in srgb, var(--xm-fg, #fff) 10%, transparent);
+}
+
+html[data-xm-on] [data-xm-tabs] [role="tab"] > div {
+  display: block !important;
+  height: auto !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  padding: 7px 10px !important;
+}
+
+html[data-xm-on] [data-xm-tabs] [role="tab"] > div > div {
+  padding: 0 !important;
+  font-size: 13px !important;
+  line-height: 18px !important;
+  white-space: nowrap;
+  text-align: left !important;
+}
+
+/* The blue underline; the selected row is tinted instead. */
+html[data-xm-on] [data-xm-tabs] [role="tab"] div[style*="background-color"] {
+  display: none !important;
+}
+
+/* The "manage timelines" +. */
+html[data-xm-on] [data-xm-tabs] > div:last-child:not(:first-child) {
+  align-self: stretch !important;
+  height: 28px !important;
+  min-height: 0 !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 /* Room under the X logo for the list icon. */
@@ -148,29 +207,98 @@ html[data-xm-tabs-open] #xm-tabs-btn {
   height: 24px;
 }
 
-/* A small handle on the rail's edge. */
+/* Sits exactly on the X logo: the logo until hovered, then the chevron and a hint. */
 #xm-nav-btn {
-  top: 18px;
-  left: calc(var(--xm-rail, 72px) - 11px);
-  width: 22px;
-  height: 22px;
+  top: var(--xm-logo-top, 2px);
+  left: var(--xm-logo-left, 10px);
+  width: var(--xm-logo-size, 52px);
+  height: var(--xm-logo-size, 52px);
   z-index: 1;
   background: var(--xm-bg, #000);
-  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54));
-  opacity: 0.75;
+  opacity: 0;
 }
 
 #xm-nav-btn:hover {
   opacity: 1;
+  background: color-mix(in srgb, var(--xm-fg, #fff) 14%, var(--xm-bg, #000));
 }
 
 #xm-nav-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
 }
 
 html[data-xm-nav="open"] #xm-nav-btn svg {
   transform: rotate(180deg);
+}
+
+#xm-nav-btn::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  translate: 0 -50%;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font: 12px/16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--xm-bg, #000);
+  background: var(--xm-fg, #fff);
+  pointer-events: none;
+}
+
+/* ---- Side panel: X's own pages in a sheet next to the rail. ---------------- */
+
+#xm-panel,
+#xm-panel-scrim {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease, translate 120ms ease;
+}
+
+#xm-panel {
+  left: var(--xm-rail, 72px);
+  width: min(700px, calc(100vw - var(--xm-rail, 72px) - 160px));
+  z-index: 2;
+  translate: -12px 0;
+  background: var(--xm-bg, #000);
+  box-shadow: 1px 0 0 var(--xm-stroke, rgb(47 51 54)), 12px 0 32px rgb(0 0 0 / 0.4);
+}
+
+/* Clicking anything outside the sheet goes back to the feed. Wheel still scrolls it. */
+#xm-panel-scrim {
+  left: calc(var(--xm-rail, 72px) + min(700px, calc(100vw - var(--xm-rail, 72px) - 160px)));
+  right: 0;
+  z-index: 2;
+  background: rgb(0 0 0 / 0.28);
+}
+
+html[data-xm-panel-open] #xm-panel,
+html[data-xm-panel-open] #xm-panel-scrim {
+  visibility: visible;
+  opacity: 1;
+  translate: 0 0;
+}
+
+/* Hidden, not removed: a page kept this way stays where it was left. */
+#xm-panel iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  visibility: hidden;
+}
+
+html[data-xm-panel-open] #xm-panel iframe[data-xm-shown] {
+  visibility: visible;
+}
+
+html[data-xm-on] header[role="banner"] nav a[data-xm-active] > div {
+  background: color-mix(in srgb, var(--xm-fg, #fff) 12%, transparent);
 }
 
 /* ---- Left nav: an icon rail. ---------------------------------------------- */

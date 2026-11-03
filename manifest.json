@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
   "name": "X Masonry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lays out the x.com home timeline as a multi-column masonry that fills the window.",
+  "permissions": ["declarativeNetRequestWithHostAccess"],
+  "host_permissions": ["https://x.com/*"],
+  "declarative_net_request": {
+    "rule_resources": [{ "id": "allow-panel-frame", "enabled": true, "path": "frame-rules.json" }]
+  },
   "content_scripts": [
     {
       "matches": ["https://x.com/*"],
@@ -10,6 +15,13 @@
       "css": ["masonry.css"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["panel-frame.js"],
+      "css": ["panel-frame.css"],
+      "run_at": "document_start",
+      "all_frames": true
     }
   ]
 }
