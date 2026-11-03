@@ -363,8 +363,11 @@ const splitTest = await p.evaluate(async () => {
   const placedBoth = !!(c2 && c2.hasAttribute("data-xm-placed")); // the head may have scrolled out of mounting
   const splitOff = placedBoth && !c2.getAttribute("data-xm-join") && (!a || pos(a)[0] !== pos(c2)[0]);
   S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== "tweet-901" && !i.id.startsWith("impressionPlaceholder")) };
+  // Short enough to share a column with what's before it, where a stale join would show.
+  S._h = (i) => (i.id === "tweet-902" ? 60 : orig(i));
+  c2.querySelector("article").style.height = "60px";
   S._scheduleCriticalUpdate();
-  await sleep(500);
+  await sleep(900);
   const after = cell();
   S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== "tweet-902") };
   S._h = orig;
