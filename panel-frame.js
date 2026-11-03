@@ -14,9 +14,15 @@ if (window !== window.top) {
   // The panel loads every page through a route X's service worker leaves alone, and
   // the address changes to the real page here, before X reads it. See PANEL_ENTRY in
   // masonry.js.
+  const ENTRY = "/i/history"; // PANEL_ENTRY in masonry.js
   const target = new URLSearchParams(location.search).get("xm-panel");
-  if (target && target.startsWith("/") && !target.startsWith("//")) {
-    replace.call(history, null, "", target);
+  if (target) {
+    try {
+      const url = new URL(target, location.origin);
+      if (url.origin === location.origin) replace.call(history, null, "", url.pathname + url.search + url.hash);
+    } catch {
+      // Not a usable address: stay on the entry page.
+    }
   }
   const behind = []; // entries before the current one
 
@@ -30,7 +36,8 @@ if (window !== window.top) {
   // and the event always matches the current location.
   const go = (delta = 0) => {
     const n = Math.trunc(Number(delta)) || 0;
-    if (n === 0) return location.reload();
+    // A plain reload would hit the service worker again.
+    if (n === 0) return location.replace(`${ENTRY}?xm-panel=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
     setTimeout(() => {
       if (n > 0 || -n > behind.length) return;
       const entry = behind.splice(n)[0];

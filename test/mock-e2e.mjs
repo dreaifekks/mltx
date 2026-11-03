@@ -151,6 +151,15 @@ f = frameOf("/notifications");
 const restored = await f.evaluate(() => ({ kept: window.__kept, y: window.scrollY }));
 const entryHits = hits.filter((u) => u === "/i/history").length;
 check("the icon brings the same page back, not a reload", restored.kept === 42 && restored.y === 700 && entryHits === 1, { restored, entryHits });
+
+// a page that reloads itself is refused by the service worker, then re-enters
+await f.evaluate(() => location.reload()).catch(() => {});
+await p.waitForTimeout(900);
+f = frameOf("/notifications");
+const recovered = f && (await f.evaluate(() => ({ path: location.pathname, mark: document.documentElement.hasAttribute("data-xm-panel") })).catch(() => null));
+check("a page that reloads itself recovers instead of staying refused", !!recovered && recovered.path === "/notifications" && recovered.mark && hits.filter((u) => u === "/i/history").length === 2, { recovered, frames: p.frames().map((x) => x.url()) });
+const bad = await p.evaluate(async () => { const f = document.createElement("iframe"); f.src = "/i/history?xm-panel=" + encodeURIComponent("/\\\\evil.example/p"); document.body.append(f); await new Promise((r) => setTimeout(r, 400)); const out = { path: f.contentWindow.location.pathname, host: f.contentWindow.location.host, shim: f.contentWindow.history.back.toString().includes("go(-1)") }; f.remove(); return out; });
+check("a hostile address is ignored and the page still starts", bad.host === "x.com" && bad.shim, bad);
 await railLink("Notifications").click();
 await p.waitForTimeout(200);
 check("clicking the active icon closes it", !(await panelState()).open);

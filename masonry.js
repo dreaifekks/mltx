@@ -41,6 +41,7 @@
   // frame-rules.json. It leaves this route to the network; panel-frame.js then swaps in
   // the real address before X starts.
   const PANEL_ENTRY = "/i/history";
+  const PANEL_RETRY_MS = 5000;
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -702,6 +703,22 @@
     } catch {}
   }
 
+  const panelEntryUrl = (href) => `${PANEL_ENTRY}?xm-panel=${encodeURIComponent(href)}`;
+
+  // A page in the panel that reloads itself goes back through the service worker and is
+  // refused, which shows up as a frame we can't read. Enter again, but don't keep trying.
+  function recoverFrame(frame) {
+    let readable = false;
+    try {
+      readable = !!frame.contentWindow.location.href;
+    } catch {}
+    if (readable) return;
+    const now = performance.now();
+    if (now - (frame.__xmRetriedAt || -Infinity) < PANEL_RETRY_MS) return;
+    frame.__xmRetriedAt = now;
+    frame.src = panelEntryUrl(frame.dataset.xmHref);
+  }
+
   function markLink(link) {
     if (panelLink) panelLink.removeAttribute("data-xm-active");
     panelLink = link;
@@ -720,7 +737,8 @@
       frame.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
       frame.setAttribute("allow", "autoplay; fullscreen; clipboard-write; encrypted-media");
       frame.dataset.xmHref = href;
-      frame.src = `${PANEL_ENTRY}?xm-panel=${encodeURIComponent(href)}`;
+      frame.src = panelEntryUrl(href);
+      frame.addEventListener("load", () => recoverFrame(frame));
       panelEl.append(frame);
     }
     panelFrames.set(href, frame);
