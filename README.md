@@ -9,7 +9,8 @@ masonry that fills the window. Every other page stays as X renders it.
 
 ## Use
 
-- Column count follows the window: about one column per 500px, at most 4.
+- Column count follows the window: as many as fit at 360px or wider, at most 4.
+  Below a 900px window, X's own layout stays.
 - `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. The choice is
   stored in `localStorage` under `xm-cols`.
 

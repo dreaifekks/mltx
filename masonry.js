@@ -23,7 +23,7 @@
 
   const GAP = 12; // between cards
   const PAD = 12; // around the board
-  const TARGET_WIDTH = 500; // used to pick the column count
+  const MIN_CARD_WIDTH = 360; // used to pick the column count
   const MAX_AUTO_COLS = 4;
   const MIN_WINDOW = 900; // below this the window is too narrow, leave X alone
   const SETTLE_FRAMES = 2; // a height must hold this long before a card is placed
@@ -36,7 +36,11 @@
   const CONVERSATION = /^impressionPlaceholder-home-conversation-(\d+)$/;
   // Modules arrive as several items, e.g. header-who-to-follow-<n>, who-to-follow-<n>-user-<m>.
   const MODULE = /^(?:header-|footer-|\$divider-bottom-)?((?!tweet-|promoted-tweet-|impressionPlaceholder-)[a-zA-Z-]+?-\d{10,})/;
-  const OVERLAY_ROUTE = /^\/(compose\/|i\/|[^/]+\/status\/\d+\/(photo|video)\/\d+)/;
+  // Routes X opens as a dialog over the page. Other /i/ routes (bookmarks...) are full pages.
+  const OVERLAY_ROUTE = /^\/(compose\/|i\/(flow|display|keyboard_shortcuts)(\/|$)|[^/]+\/status\/\d+\/(photo|video)\/\d+)/;
+  const STALL_FRAMES = 180; // a card that never gets ready stops holding up the rest
+  const IDLE_FRAMES = 30; // quiet this long and the layout pass drops to every IDLE_EVERY frames
+  const IDLE_EVERY = 6;
 
   const root = document.documentElement;
   const boards = new Map(); // cacheKey -> board; survives leaving and coming back
@@ -47,6 +51,9 @@
   let homeSince = 0;
   let errors = 0;
   let themeAt = 0;
+  let quietFrames = 0;
+  let frameCount = 0;
+  let lastPath = "";
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -73,7 +80,7 @@
 
   function shouldLayOut() {
     if (innerWidth < MIN_WINDOW) return false;
-    if (isHome()) return homeSince === 0 || current || performance.now() - homeSince < ATTACH_TIMEOUT;
+    if (isHome()) return homeSince === 0 || current || performance.now() - homeSince < ATTACH_TIMEOUT || !!liveList();
     // A dialog or the media viewer over a feed that is still mounted underneath.
     return !!(current && current.el.isConnected && OVERLAY_ROUTE.test(location.pathname));
   }
@@ -130,17 +137,24 @@
   }
 
   function forgetDropped(board, byId) {
-    let changed = false;
     for (const col of board.columns) {
       for (let i = col.length - 1; i >= 0; i--) {
-        if (!byId.has(col[i])) {
-          board.placed.delete(col[i]);
-          col.splice(i, 1);
-          changed = true;
-        }
+        if (byId.has(col[i])) continue;
+        // The card after a dropped conversation head must not glue onto an unrelated card.
+        const gone = board.placed.get(col[i]);
+        const next = board.placed.get(col[i + 1]);
+        if (next && next.join && !gone.join) next.join = false;
+        board.placed.delete(col[i]);
+        col.splice(i, 1);
+        board.dirty = true;
       }
     }
-    if (changed) board.dirty = true;
+    for (const cache of [board.heights, board.seen, board.tops]) {
+      for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
+    }
+    for (const id of board.skipped) if (!byId.has(id)) board.skipped.delete(id);
+    const g = board.group;
+    if (g && ((g.last && !byId.has(g.last)) || (g.member && !board.placed.has(g.member)))) board.group = null;
   }
 
   // ---- board --------------------------------------------------------------
@@ -159,19 +173,26 @@
       bottoms: [],
       total: 0,
       dirty: true,
-      group: null, // conversation being placed: { last, col }
-      frontStack: [], // how many new-at-the-top cards each column has taken
+      group: null, // conversation or module being placed: { last | module, col, member }
+      frontHeight: [], // new-at-the-top batch: height taken in each column
+      frontCount: [], // ...and how many cards, which is where the next one goes
+      joinsNext: new Set(), // cards whose next card in the column is joined to them
+      requested: new Set(), // unplaced cards the board has asked X to mount
+      stallId: null,
+      stallFrames: 0,
       y: 0,
       restoreFrames: 0,
     };
   }
 
   function relayout(b) {
+    b.joinsNext.clear();
     b.bottoms = b.columns.map((col) => {
       let y = 0;
       col.forEach((id, i) => {
         const p = b.placed.get(id);
         if (i > 0 && !p.join) y += GAP;
+        if (i > 0 && p.join) b.joinsNext.add(col[i - 1]);
         b.tops.set(id, y);
         y += b.heights.get(id) || 0;
       });
@@ -183,6 +204,11 @@
 
   const shortest = (values) => values.reduce((best, v, i) => (v < values[best] ? i : best), 0);
 
+  function resetFront(b) {
+    b.frontHeight = b.columns.map(() => 0);
+    b.frontCount = b.columns.map(() => 0);
+  }
+
   function placeCard(b, id, atFront) {
     const g = b.group;
     const joined = !!(g && g.col !== null);
@@ -190,19 +216,19 @@
     if (joined) {
       col = g.col;
     } else if (atFront) {
-      col = shortest(b.frontStack);
+      col = shortest(b.frontHeight);
     } else {
       if (b.dirty) relayout(b);
       col = shortest(b.bottoms);
     }
     if (g) {
       g.col = col;
-      if (id === g.last) b.group = null;
+      g.member = id;
     }
     if (atFront) {
-      b.columns[col].splice(b.frontStackCount[col], 0, id);
-      b.frontStackCount[col]++;
-      b.frontStack[col] += b.heights.get(id) || 0;
+      b.columns[col].splice(b.frontCount[col], 0, id);
+      b.frontCount[col]++;
+      b.frontHeight[col] += b.heights.get(id) || 0;
     } else {
       b.columns[col].push(id);
     }
@@ -225,31 +251,51 @@
     const { S, board: b } = c;
     const list = S.props.list;
     const lastPlaced = lastPlacedIndex(b, list);
-    b.frontStack = b.columns.map(() => 0);
-    b.frontStackCount = b.columns.map(() => 0);
+    let placedAny = false;
+    let frontPending = false;
+    if (b.frontCount.length !== b.columns.length) resetFront(b);
     for (let k = 0; k < list.length; k++) {
       const id = list[k].id;
       if (b.placed.has(id) || NOT_A_CARD.test(id)) continue;
       const atFront = k < lastPlaced;
       if (atFront && farFromTop(b)) continue;
       if (b.skipped.has(id)) {
-        const h = b.heights.get(id) || 0;
-        if (h <= 1) continue;
+        if ((b.heights.get(id) || 0) <= 1) continue;
         b.skipped.delete(id);
       }
       const seen = b.seen.get(id);
-      if (!seen || seen.frames < SETTLE_FRAMES) break;
+      if (!seen || seen.frames < SETTLE_FRAMES) {
+        if (atFront) frontPending = true;
+        // Only a card that was asked for can stall; the rest just aren't due yet.
+        if (!b.requested.has(id)) {
+          b.stallId = null;
+          break;
+        }
+        if (b.stallId !== id) {
+          b.stallId = id;
+          b.stallFrames = 0;
+        }
+        if (++b.stallFrames < STALL_FRAMES) break;
+        b.stallId = null;
+        b.skipped.add(id); // X never rendered it; don't let it hold up the rest
+        continue;
+      }
       const m = CONVERSATION.exec(id);
-      if (m) b.group = { last: `tweet-${m[1]}`, col: null };
+      if (m) b.group = b.placed.has(`tweet-${m[1]}`) ? null : { last: `tweet-${m[1]}`, col: null };
       const mod = MODULE.exec(id);
       if (mod && !(b.group && b.group.module === mod[1])) b.group = { module: mod[1], col: null };
       else if (!mod && b.group && b.group.module) b.group = null;
       if (seen.h <= 1) {
         b.skipped.add(id);
-        continue;
+      } else {
+        placeCard(b, id, atFront);
+        placedAny = true;
       }
-      placeCard(b, id, atFront);
+      if (b.group && id === b.group.last) b.group = null;
     }
+    // A new-at-the-top batch can take several frames; its insertion point lasts until it's done.
+    if (!frontPending) resetFront(b);
+    return placedAny;
   }
 
   // Re-deals every card when the column count changes. Conversations stay together.
@@ -265,6 +311,9 @@
       b.columns[col].push(id);
       bottoms[col] += (b.heights.get(id) || 0) + GAP;
     }
+    resetFront(b);
+    const g = b.group;
+    if (g && g.member) g.col = b.placed.get(g.member).col;
     b.dirty = true;
   }
 
@@ -278,6 +327,11 @@
   }
 
   // ---- attach -------------------------------------------------------------
+
+  function boardFor(key) {
+    if (!boards.has(key)) boards.set(key, newBoard());
+    return boards.get(key);
+  }
 
   function attach(S) {
     const vp = S._viewport;
@@ -297,9 +351,7 @@
     const adopt = (p) => {
       try {
         if (p && Array.isArray(p.list)) {
-          const key = String(p.cacheKey);
-          if (!boards.has(key)) boards.set(key, newBoard());
-          const out = arrange(boards.get(key), p.list);
+          const out = arrange(boardFor(String(p.cacheKey)), p.list);
           if (out !== p.list) p.list = out;
           // Mount what the rect says, with no extra margin. The rect has its own.
           p.minimumOffscreenToViewportRatio = 0;
@@ -320,7 +372,7 @@
 
     el.setAttribute("data-xm-board", "");
     const key = String(S.props.cacheKey);
-    const board = boards.get(key);
+    const board = boardFor(key);
     board.restoreFrames = board.y > 0 ? 40 : 0;
     current = { S, el, vp, st, key, board };
     S._scheduleCriticalUpdate();
@@ -337,6 +389,7 @@
     el.removeAttribute("data-xm-board");
     for (const cell of el.children) {
       cell.style.translate = "";
+      delete cell.__xm;
       cell.removeAttribute("data-xm-placed");
       cell.removeAttribute("data-xm-join");
     }
@@ -349,7 +402,7 @@
 
   function pickColumns(width) {
     if (cfgCols) return cfgCols;
-    return Math.max(1, Math.min(MAX_AUTO_COLS, Math.round(width / TARGET_WIDTH)));
+    return Math.max(1, Math.min(MAX_AUTO_COLS, Math.floor(width / MIN_CARD_WIDTH)));
   }
 
   function measure(c) {
@@ -381,7 +434,9 @@
     const list = S.props.list;
     const shortestBottom = b.bottoms.length ? Math.min(...b.bottoms) : 0;
     let want = shortestBottom < fillTo ? cols * 3 : 0;
+    let wantFront = farFromTop(b) ? 0 : cols * 3; // new posts at the top don't depend on column depth
     const lastPlaced = lastPlacedIndex(b, list);
+    b.requested.clear();
     let k0 = -1;
     let k1 = -1;
     let top = 0;
@@ -394,9 +449,17 @@
       let keep = false;
       if (b.placed.has(id)) {
         keep = t + (b.heights.get(id) || 0) >= y0 && t <= y1;
-      } else if (want > 0 && !NOT_A_CARD.test(id) && !(k < lastPlaced && farFromTop(b)) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
-        keep = true;
-        want--;
+      } else if (!NOT_A_CARD.test(id) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
+        if (k < lastPlaced) {
+          if (wantFront > 0) {
+            keep = true;
+            wantFront--;
+          }
+        } else if (want > 0) {
+          keep = true;
+          want--;
+        }
+        if (keep) b.requested.add(id);
       }
       if (keep) {
         if (k0 < 0) {
@@ -434,9 +497,7 @@
       const v = `${PAD + p.col * (colw + GAP)}px ${PAD + b.tops.get(id)}px`;
       if (cell.__xm !== v) cell.style.translate = cell.__xm = v;
       if (!cell.hasAttribute("data-xm-placed")) cell.setAttribute("data-xm-placed", "");
-      const col = b.columns[p.col];
-      const next = col[col.indexOf(id) + 1];
-      const join = [p.join && "prev", next && b.placed.get(next).join && "next"].filter(Boolean).join(" ");
+      const join = [p.join && "prev", b.joinsNext.has(id) && "next"].filter(Boolean).join(" ");
       if ((cell.getAttribute("data-xm-join") || "") !== join) {
         if (join) cell.setAttribute("data-xm-join", join);
         else cell.removeAttribute("data-xm-join");
@@ -452,7 +513,7 @@
     const want = shouldLayOut();
     // The give-up timer runs from the last moment a list was attached: switching
     // between For you and Following replaces the list instance.
-    if (isHome()) {
+    if (isHome() && innerWidth >= MIN_WINDOW) {
       if (!homeSince || current) homeSince = performance.now();
     } else if (!current) {
       homeSince = 0;
@@ -476,7 +537,7 @@
     const key = String(c.S.props.cacheKey);
     if (key !== c.key) {
       c.key = key;
-      c.board = boards.get(key);
+      c.board = boardFor(key);
       c.board.restoreFrames = c.board.y > 0 ? 40 : 0;
       c.st.k0 = c.st.k1 = -1;
       if (!c.board.y) scrollTo(0, 0);
@@ -502,8 +563,10 @@
       setVar("--xm-stroke", getComputedStyle(pc).borderLeftColor);
     }
 
+    const yBefore = b.y;
     measure(c);
-    placeReady(c);
+    const placedAny = placeReady(c);
+    const moved = placedAny || b.dirty;
     if (b.dirty) relayout(b);
     setVar("--xm-total", b.total + "px");
 
@@ -525,17 +588,28 @@
     requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
     placeCells(c, colw);
     if (!c.el.hasAttribute("data-xm-board")) c.el.setAttribute("data-xm-board", "");
+    const busy = moved || b.y !== yBefore || b.anchor || b.restoreFrames > 0 || b.stallId !== null;
+    quietFrames = busy ? 0 : quietFrames + 1;
     errors = 0;
   }
 
   function frame() {
     requestAnimationFrame(frame);
     if (errors >= 3) return;
+    // With nothing moving, the layout pass runs a few times a second. A route
+    // change or a scroll always gets it at once.
+    frameCount++;
+    const b = current && current.board;
+    const changed = location.pathname !== lastPath || (b && scrollY !== b.y);
+    lastPath = location.pathname;
+    if (changed) quietFrames = 0;
+    if (quietFrames > IDLE_FRAMES && frameCount % IDLE_EVERY) return;
     try {
       step();
     } catch (e) {
       errors++;
       console.error("[x-masonry]", e);
+      quietFrames = 0;
       if (errors >= 3) {
         try {
           detach();
@@ -558,6 +632,7 @@
       else return;
       e.preventDefault();
       cfgCols = next;
+      quietFrames = 0;
       if (next) localStorage.setItem(COLS_KEY, String(next));
       else localStorage.removeItem(COLS_KEY);
     },
@@ -565,7 +640,7 @@
   );
 
   // Don't fight the user while putting the view back.
-  for (const type of ["wheel", "touchstart", "keydown"]) {
+  for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
     addEventListener(
       type,
       () => {
