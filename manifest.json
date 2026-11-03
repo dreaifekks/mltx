@@ -21,7 +21,8 @@
       "js": ["panel-frame.js"],
       "css": ["panel-frame.css"],
       "run_at": "document_start",
-      "all_frames": true
+      "all_frames": true,
+      "world": "MAIN"
     }
   ]
 }

@@ -37,7 +37,7 @@ u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBound
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
-const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random()</script>`);
+const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();</script>`);
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe>`;
 
 const hits = [];
@@ -150,6 +150,33 @@ await railLink("Notifications").click();
 await p.waitForTimeout(200);
 check("clicking the active icon closes it", !(await panelState()).open);
 
+// ---- the panel stays out of the tab's history --------------------------------------
+await railLink("Notifications").click();
+await p.waitForTimeout(250);
+const lenBefore = await p.evaluate(() => history.length);
+f = frameOf("/notifications");
+await f.evaluate(() => { window.__pops = []; addEventListener("popstate", (e) => window.__pops.push(e.state)); history.pushState({ page: "detail" }, "", "/x/status/9"); });
+const lenAfter = await p.evaluate(() => history.length);
+check("navigating inside the panel adds nothing to the tab's history", lenAfter === lenBefore && f.url().endsWith("/x/status/9"), { lenBefore, lenAfter, url: f.url() });
+await f.evaluate(() => history.back());
+await p.waitForTimeout(150);
+const backed = await f.evaluate(() => ({ path: location.pathname, pops: window.__pops.length }));
+check("the panel's own back still works", backed.path === "/notifications" && backed.pops === 1 && (await p.evaluate(() => location.pathname)) === "/home", backed);
+await railLink("Notifications").click();
+await p.waitForTimeout(150);
+
+// ---- Cmd-click isn't intercepted ----------------------------------------------------
+await railLink("Chat").click();
+await p.waitForTimeout(250);
+const pagesBefore = ctx.pages().length;
+await railLink("Home").click({ modifiers: ["Meta"] });
+await p.waitForTimeout(400);
+const cmd = { pages: ctx.pages().length - pagesBefore, open: (await panelState()).open };
+check("Cmd-click on Home opens a new tab and leaves the panel", cmd.pages === 1 && cmd.open, cmd);
+for (const extra of ctx.pages().slice(pagesBefore)) await extra.close();
+await railLink("Chat").click();
+await p.waitForTimeout(150);
+
 for (const t of ["Chat", "Bookmarks", "Profile"]) {
   await railLink(t).click();
   await p.waitForTimeout(350);
@@ -179,6 +206,16 @@ await p.locator("[data-xm-placed] a").first().click();
 await p.waitForTimeout(500);
 const off = await p.evaluate(() => ({ path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on"), ready: document.documentElement.hasAttribute("data-xm-ready"), panel: document.documentElement.hasAttribute("data-xm-panel-open") }));
 check("other pages turn everything off", off.path === "/x/status/1" && !off.on && !off.ready && !off.panel, off);
+
+// ---- errors fall back to X's own page, with nothing left on top ---------------------
+await p.goto("https://x.com/home");
+await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+await railLink("Notifications").click();
+await p.waitForTimeout(300);
+await p.evaluate(() => { window.__err = console.error; console.error = () => {}; window.scroller._getHeight = null; });
+await p.waitForTimeout(500);
+const fb = await p.evaluate(() => { const e = document.documentElement; const pe = document.querySelector("#xm-panel"); return { on: e.hasAttribute("data-xm-on"), open: e.hasAttribute("data-xm-panel-open"), ready: e.hasAttribute("data-xm-ready"), panel: getComputedStyle(pe).visibility, scrim: getComputedStyle(document.querySelector("#xm-panel-scrim")).visibility, frame: getComputedStyle(pe.querySelector("iframe")).visibility, side: getComputedStyle(document.querySelector('[data-testid="sidebarColumn"]')).display, composer: getComputedStyle(document.getElementById("composer")).display, region: getComputedStyle(document.querySelector('section[role="region"]')).visibility, bar: document.getElementById("bar").offsetHeight }; });
+check("three errors close the panel and restore X's layout", !fb.on && !fb.open && !fb.ready && fb.panel === "hidden" && fb.scrim === "hidden" && fb.frame === "hidden" && fb.side !== "none" && fb.composer !== "none" && fb.region === "visible" && fb.bar === 53, fb);
 
 // ---- a third party still can't frame x.com ------------------------------------------
 const before3 = hits.length;

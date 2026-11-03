@@ -602,6 +602,10 @@
       });
     }
     if (tabsBtn.parentElement !== header) header.append(tabsBtn, navBtn);
+    // React may have rebuilt the rail under an open panel.
+    if (panelHref && !(panelLink && panelLink.isConnected)) {
+      markLink(header.querySelector(`nav a[href="${CSS.escape(panelHref)}"]`));
+    }
 
     // Below about 1265px X draws its rail without labels, so there is nothing to expand to.
     const canExpand = !!header.querySelector("nav a span");
@@ -686,6 +690,13 @@
     document.body.append(panelEl, panelScrim);
   }
 
+  // A hidden page keeps its state but shouldn't keep playing.
+  function pauseMedia(frame) {
+    try {
+      for (const m of frame.contentDocument.querySelectorAll("video, audio")) m.pause();
+    } catch {}
+  }
+
   function markLink(link) {
     if (panelLink) panelLink.removeAttribute("data-xm-active");
     panelLink = link;
@@ -699,14 +710,18 @@
       panelFrames.delete(href);
     } else {
       frame = document.createElement("iframe");
-      // No allow-top-navigation: a page in the panel can't navigate the feed away.
+      // No allow-top-navigation, so a stray link can't send the feed away. This isn't an
+      // isolation boundary: the frame is x.com's own code, same origin as the page.
       frame.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
       frame.setAttribute("allow", "autoplay; fullscreen; clipboard-write; encrypted-media");
       frame.src = href;
       panelEl.append(frame);
     }
     panelFrames.set(href, frame);
-    for (const f of panelFrames.values()) f.toggleAttribute("data-xm-shown", f === frame);
+    for (const f of panelFrames.values()) {
+      if (f !== frame && f.hasAttribute("data-xm-shown")) pauseMedia(f);
+      f.toggleAttribute("data-xm-shown", f === frame);
+    }
     for (const [h, f] of panelFrames) {
       if (panelFrames.size <= PANEL_CACHE) break;
       if (f !== frame) {
@@ -721,6 +736,7 @@
   }
 
   function closePanel() {
+    if (panelHref && panelFrames.has(panelHref)) pauseMedia(panelFrames.get(panelHref));
     panelHref = null;
     markLink(null);
     root.removeAttribute("data-xm-panel-open");
@@ -731,6 +747,7 @@
     (e) => {
       const t = e.target;
       if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab, as usual
       const header = t.closest('header[role="banner"]');
       if (!header || t.closest("#xm-tabs-btn, #xm-nav-btn")) return;
       const link = t.closest("nav a[href]");
@@ -745,7 +762,6 @@
         }
         return;
       }
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       e.stopImmediatePropagation();
       const href = link.getAttribute("href");
@@ -885,6 +901,8 @@
         try {
           detach();
         } catch {}
+        closePanel();
+        setTabsOpen(false);
         root.removeAttribute("data-xm-on");
       }
     }

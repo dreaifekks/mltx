@@ -276,8 +276,8 @@ html[data-xm-nav="open"] #xm-nav-btn svg {
   background: rgb(0 0 0 / 0.28);
 }
 
-html[data-xm-panel-open] #xm-panel,
-html[data-xm-panel-open] #xm-panel-scrim {
+html[data-xm-on][data-xm-panel-open] #xm-panel,
+html[data-xm-on][data-xm-panel-open] #xm-panel-scrim {
   visibility: visible;
   opacity: 1;
   translate: 0 0;
@@ -293,7 +293,7 @@ html[data-xm-panel-open] #xm-panel-scrim {
   visibility: hidden;
 }
 
-html[data-xm-panel-open] #xm-panel iframe[data-xm-shown] {
+html[data-xm-on][data-xm-panel-open] #xm-panel iframe[data-xm-shown] {
   visibility: visible;
 }
 
