@@ -967,11 +967,13 @@
     }
   }
 
-  // Stacked above X's own floating Grok and chat buttons, and styled from them.
+  // Lives inside X's own topmost floating button (Grok, or chat without it), so it stays
+  // right above it wherever X puts it, with no position to work out here. Styled from it.
   function placeFlowButton(header) {
     if (!flowBtn) {
       flowBtn = makeButton("xm-flow-btn", "", "");
-      flowBtn.addEventListener("click", () => {
+      flowBtn.addEventListener("click", (e) => {
+        e.stopPropagation(); // it's inside X's button area, and isn't meant to open anything there
         flowSideways = !flowSideways;
         if (flowSideways) localStorage.setItem(FLOW_KEY, "h");
         else localStorage.removeItem(FLOW_KEY);
@@ -979,22 +981,19 @@
         quietFrames = 0;
       });
     }
-    if (flowBtn.parentElement !== header) header.append(flowBtn);
+    const home = document.querySelector('[data-testid="GrokDrawer"]') || document.querySelector('[data-testid="chat-drawer-root"]');
+    const target = home || header;
+    if (flowBtn.parentElement !== target) target.append(flowBtn);
     const label = flowSideways ? "切换到纵向流" : "切换到横向流";
     if (flowBtn.title !== label) {
       flowBtn.title = label;
       flowBtn.setAttribute("aria-label", label);
       flowBtn.innerHTML = flowSideways ? ICON_FLOW_V : ICON_FLOW_H;
     }
-    // Only the square launchers: with a drawer open its buttons mustn't carry this along.
-    const near = [...document.querySelectorAll('[data-testid="GrokDrawer"] button, [data-testid="chat-drawer-root"] button')].filter((e) => e.offsetWidth >= 40 && e.offsetWidth <= 80 && Math.abs(e.offsetWidth - e.offsetHeight) <= 2 && getComputedStyle(e).borderRadius === "16px");
-    if (!near.length) return;
-    const top = near.reduce((a, e) => (e.getBoundingClientRect().top < a.getBoundingClientRect().top ? e : a));
-    const r = top.getBoundingClientRect();
-    setVar("--xm-flow-size", Math.round(r.width) + "px");
-    setVar("--xm-flow-top", Math.round(r.top - r.height - 12) + "px");
-    setVar("--xm-flow-left", Math.round(r.left) + "px");
-    const cs = getComputedStyle(top);
+    const twin = home && [...home.querySelectorAll("button")].find((e) => e !== flowBtn);
+    if (!twin) return;
+    const cs = getComputedStyle(twin);
+    setVar("--xm-flow-size", twin.offsetWidth + "px");
     setVar("--xm-flow-bg", cs.backgroundColor);
     setVar("--xm-flow-border", cs.border);
     setVar("--xm-flow-shadow", cs.boxShadow);

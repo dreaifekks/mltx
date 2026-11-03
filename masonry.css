@@ -592,11 +592,24 @@ html[data-xm-on][data-xm-flow="h"] [data-xm-board] > [data-xm-squeezed] {
 
 /* ---- Flow switch: above X's floating Grok and chat buttons, looking like them. ------ */
 
+/* Above X's button, whose container it sits in. Same 12px gap X leaves between its own. */
+[data-testid="GrokDrawer"] > #xm-flow-btn,
+[data-testid="chat-drawer-root"] > #xm-flow-btn {
+  position: absolute;
+  top: auto;
+  left: auto;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 12px;
+  pointer-events: auto;
+}
+
+/* The fallback, when X shows neither. */
 #xm-flow-btn {
   display: none;
   position: fixed;
-  top: var(--xm-flow-top, calc(100vh - 215px));
-  left: var(--xm-flow-left, calc(100vw - 75px));
+  top: calc(100vh - 75px);
+  left: calc(100vw - 75px);
   width: var(--xm-flow-size, 55px);
   height: var(--xm-flow-size, 55px);
   align-items: center;

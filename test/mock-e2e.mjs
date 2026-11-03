@@ -29,7 +29,7 @@ const home = page(`<div id="app">${rail}<main><div><div><div data-testid="primar
 <div></div><div id="composer"><div data-testid="tweetTextarea_0">有什么新鲜事</div></div><div style="height:1px"></div>
 <div id="tl"><section role="region"><div><div id="root" style="position:relative"></div></div></section></div>
 </div></div></div></div><div data-testid="sidebarColumn">right</div></main></div>
-<div data-testid="GrokDrawer" style="position:fixed;right:20px;bottom:87px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">G</button></div>
+<div data-testid="GrokDrawer" onclick="window.__grokClicks=(window.__grokClicks||0)+1" style="position:fixed;right:20px;bottom:87px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">G</button></div>
 <div data-testid="chat-drawer-root" style="position:fixed;right:20px;bottom:20px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">C</button></div>
 <script>
 class Rect{constructor(t,h){this._t=t;this._h=h}getTop(){return this._t}getBottom(){return this._t+this._h}getHeight(){return this._h}translateBy(d){return new Rect(this._t+d,this._h)}}
@@ -453,8 +453,10 @@ check("buttons on a card don't open it", !(await postState()).open);
 
 // ---- sideways flow --------------------------------------------------------------------
 const flowBtnBox = await p.locator("#xm-flow-btn").boundingBox();
-const grokBox = await p.locator('[data-testid="GrokDrawer"] button').boundingBox();
+const grokBox = await p.locator('[data-testid="GrokDrawer"] button:not(#xm-flow-btn)').boundingBox();
 const flowStyle = await p.evaluate(() => { const c = getComputedStyle(document.querySelector("#xm-flow-btn")); return { bg: c.backgroundColor, r: c.borderRadius, title: document.querySelector("#xm-flow-btn").title }; });
+const flowHome = await p.evaluate(() => document.querySelector("#xm-flow-btn").parentElement.getAttribute("data-testid"));
+check("the switch lives in X's own floating button container", flowHome === "GrokDrawer", flowHome);
 check("the switch sits above Grok's button, same size and style", flowBtnBox.x === grokBox.x && flowBtnBox.width === grokBox.width && Math.round(flowBtnBox.y + flowBtnBox.height + 12) === Math.round(grokBox.y) && flowStyle.bg === "rgba(0, 0, 0, 0.65)" && flowStyle.r === "16px" && flowStyle.title === "切换到横向流", { flowBtnBox, grokBox, flowStyle });
 await p.locator("#xm-flow-btn").click();
 await p.waitForTimeout(700);
@@ -463,6 +465,7 @@ let fl = await flow();
 const colXs = [...new Set(fl.cards.map((c) => c.x))].sort((a, b) => a - b);
 const fits = fl.cards.every((c) => c.y + c.h <= fl.ch);
 const overlaps = (() => { const byX = {}; for (const c of fl.cards) (byX[c.x] = byX[c.x] || []).push(c); return Object.values(byX).some((a) => a.sort((m, n) => m.y - n.y).some((c, i) => i && c.y < a[i - 1].y + a[i - 1].h)); })();
+check("clicking it doesn't reach X's Grok button", (await p.evaluate(() => window.__grokClicks || 0)) === 0);
 check("switching lays cards out in screen-high columns, scrolling sideways", fl.attr === "h" && fl.pos === "fixed" && colXs.length >= 2 && fits && !overlaps && fl.sw > fl.cw && fl.stored === "h" && fl.title === "切换到纵向流", { attr: fl.attr, pos: fl.pos, colXs, fits, overlaps, sw: fl.sw, cw: fl.cw, doc: fl.doc });
 const box = await p.locator("[data-xm-board]").boundingBox();
 await p.mouse.move(box.x + 400, 400);
