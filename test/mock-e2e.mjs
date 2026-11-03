@@ -476,6 +476,27 @@ await p.mouse.wheel(500, 0);
 await p.waitForTimeout(350);
 fl = await flow();
 check("a sideways wheel scrolls it natively", fl.sl > afterY + 400, { before: afterY, now: fl.sl });
+// a sideways swipe that opens with a stray vertical event must not run backwards
+await p.waitForTimeout(300);
+const startWobble = fl.sl;
+await p.mouse.wheel(0, -1);
+await p.mouse.wheel(1, -2);
+for (let i = 0; i < 12; i++) { await p.mouse.wheel(25, -3); await p.waitForTimeout(16); }
+await p.waitForTimeout(250);
+fl = await flow();
+check("a sideways swipe opening with a vertical wobble goes the way it was swiped", fl.sl > startWobble + 250, { before: startWobble, now: fl.sl });
+// and a mostly vertical gesture doesn't flip when it wobbles sideways
+await p.waitForTimeout(300);
+const startV = fl.sl;
+await p.mouse.wheel(0, -1);
+for (let i = 0; i < 12; i++) { await p.mouse.wheel(i % 2 ? 2 : -2, -25); await p.waitForTimeout(16); }
+await p.waitForTimeout(250);
+fl = await flow();
+check("a vertical gesture stays vertical through a sideways wobble", fl.sl < startV - 200, { before: startV, now: fl.sl });
+await p.waitForTimeout(300);
+await p.mouse.wheel(600, 0);
+await p.waitForTimeout(300);
+fl = await flow();
 const overRail = fl.sl;
 await p.waitForTimeout(300);
 await p.mouse.move(30, 400);

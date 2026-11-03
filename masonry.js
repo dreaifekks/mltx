@@ -37,6 +37,8 @@
   const MAX_THREAD = 12; // posts a conversation in the feed can span
   const REPLY_SHARE = 0.6; // sideways: how much of a column a reply can keep in a squeezed conversation
   const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
+  const GESTURE_DEADZONE = 8; // px of movement before an unclear gesture picks a direction
+  const SIDEWAYS_BIAS = 2; // vertical must exceed sideways by this much to count as vertical
   const GESTURE_GAP = 180; // ms without wheel events before the next one starts a new gesture
   const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
   const NAV_LABELS_MIN_WINDOW = 1265; // X draws its rail labels from about this wide
@@ -85,7 +87,10 @@
   let flowSideways = localStorage.getItem(FLOW_KEY) === "h";
   let flowBtn = null;
   let flowPlacedAt = 0;
-  let gesture = { at: 0, kind: null };
+  let gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null };
+  const resetGesture = () => {
+    gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null };
+  };
   let tabsBtn = null;
   let navBtn = null;
   let tabsCloseTimer = 0;
@@ -625,7 +630,7 @@
   // screen right now says nothing about where it was.
   function changeFlow(c, b, sideways) {
     const anchor = b.flow === "h" ? anchorSideways(b, b.x) : anchorAt(b, b.y - b.listTop - PAD);
-    gesture.kind = null;
+    resetGesture();
     b.flow = sideways ? "h" : "v";
     if (!sideways) b.columns = []; // dealt again below
     b.dirty = true;
@@ -1174,7 +1179,7 @@
   }
 
   function closePost() {
-    gesture.kind = null;
+    resetGesture();
     postLoaded();
     if (postFrame) pauseMedia(postFrame);
     root.removeAttribute("data-xm-post-open");
@@ -1316,7 +1321,7 @@
       c.board = boardFor(key);
       c.board.restoreFrames = c.board.y > 0 || c.board.x > 0 ? 40 : 0;
       c.st.k0 = c.st.k1 = -1;
-      gesture.kind = null;
+      resetGesture();
       if (!c.board.y) scrollTo(0, 0);
       c.el.scrollLeft = c.board.flow === "h" ? c.board.x : 0;
     }
@@ -1471,9 +1476,14 @@
   );
 
   // Sideways, the list scrolls itself, and the wheel works anywhere in the window. The
-  // direction is decided once per gesture: a sideways swipe stays entirely native, or
-  // the small vertical wobble at the end of its inertia would drag the list about. A
-  // vertical gesture starting on a card too tall for its column scrolls that card.
+  // direction is decided once per gesture, but not from the first event alone: a swipe
+  // often opens with a stray dx=0, dy=-1, and locking onto that would turn the whole swipe
+  // into a vertical one, running backwards. So:
+  //  - clearly sideways from the first event: entirely native, the smoothest case, and
+  //    the small vertical wobble at the end of its inertia can't drag the list about.
+  //  - otherwise hold the movement until there's enough to tell, then apply it all. Sideways
+  //    wins unless vertical clearly dominates, since that's what this list scrolls in.
+  //  - a vertical gesture starting on a card too tall for its column scrolls that card.
   addEventListener(
     "wheel",
     (e) => {
@@ -1483,25 +1493,46 @@
       if (!t.closest || t.closest('#layers, [role="dialog"], [data-xm-tabs]')) return;
 
       const now = performance.now();
-      if (now - gesture.at > GESTURE_GAP) gesture.kind = null;
+      if (now - gesture.at > GESTURE_GAP) resetGesture();
       gesture.at = now;
       const unit = e.deltaMode === 1 ? 40 : 1;
       const dx = e.deltaX * unit;
       const dy = e.deltaY * unit;
-      const cell = t.closest("[data-xm-placed]");
+      const list = current.el;
+
       if (!gesture.kind) {
-        if (Math.abs(dx) > Math.abs(dy)) gesture.kind = "x";
-        else if (cell && cell.scrollHeight > cell.clientHeight + 1 && (dy > 0 ? cell.scrollTop + cell.clientHeight < cell.scrollHeight - 1 : cell.scrollTop > 0)) gesture.kind = "card";
-        else gesture.kind = "y";
+        const first = !gesture.dx && !gesture.dy;
+        if (first && dx !== 0 && Math.abs(dx) * SIDEWAYS_BIAS >= Math.abs(dy) && t.closest("[data-xm-board]")) {
+          gesture.kind = "native";
+          return;
+        }
+        // Prevented from the start, or the browser wouldn't let this be prevented later.
+        e.preventDefault();
+        gesture.dx += dx;
+        gesture.dy += dy;
+        if (Math.abs(gesture.dx) + Math.abs(gesture.dy) < GESTURE_DEADZONE) return;
+        if (Math.abs(gesture.dx) * SIDEWAYS_BIAS >= Math.abs(gesture.dy)) {
+          gesture.kind = "x";
+          list.scrollLeft += gesture.dx;
+          return;
+        }
+        const cell = t.closest("[data-xm-placed]");
+        const room = cell && cell.scrollHeight > cell.clientHeight + 1 && (gesture.dy > 0 ? cell.scrollTop + cell.clientHeight < cell.scrollHeight - 1 : cell.scrollTop > 0);
+        if (room) {
+          gesture.kind = "card";
+          gesture.cell = cell;
+          cell.scrollTop += gesture.dy;
+        } else {
+          gesture.kind = "y";
+          list.scrollLeft += gesture.dy;
+        }
+        return;
       }
-      if (gesture.kind === "card") return;
-      if (gesture.kind === "x") {
-        if (t.closest("[data-xm-board]")) return;
-        current.el.scrollLeft += dx; // over the rail, where nothing would scroll
-      } else {
-        current.el.scrollLeft += dy;
-      }
+      if (gesture.kind === "native") return;
       e.preventDefault();
+      if (gesture.kind === "x") list.scrollLeft += dx;
+      else if (gesture.kind === "y") list.scrollLeft += dy;
+      else if (gesture.cell && gesture.cell.isConnected) gesture.cell.scrollTop += dy;
     },
     { capture: true, passive: false },
   );
