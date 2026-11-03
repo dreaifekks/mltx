@@ -57,6 +57,9 @@
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
   const CONVERSATION = /^impressionPlaceholder-home-conversation-(\d+)$/;
+  // Empty items marking where something starts. They need no measuring and can't count on
+  // being mounted: nothing with no height falls inside the window X is asked for.
+  const MARKER = /^impressionPlaceholder-/;
   // Modules arrive as several items, e.g. header-who-to-follow-<n>, who-to-follow-<n>-user-<m>.
   const MODULE = /^(?:header-|footer-|\$divider-bottom-)?((?!tweet-|promoted-tweet-|impressionPlaceholder-)[a-zA-Z-]+?-\d{10,})/;
   // Routes X opens as a dialog over the page. Other /i/ routes (bookmarks...) are full pages.
@@ -164,17 +167,7 @@
         after.get(anchor).push(item.id);
       }
     }
-    // Something new where a card just went: it takes that card's exact place, whichever
-    // column that was. The list's order alone can't say, since neighbours in the list
-    // can be in different columns.
-    const takeOver = (newId, oldId) => {
-      const p = newId && oldId && !byId.has(oldId) && board.placed.get(oldId);
-      if (!p) return;
-      const index = board.columns[p.col] ? board.columns[p.col].indexOf(oldId) : -1;
-      if (index >= 0) board.slots.set(newId, { col: p.col, index, join: p.join });
-    };
-    takeOver(front[0], board.order[0]);
-    for (const [id, news] of after) takeOver(news[0], board.order[known.get(id) + 1]);
+    classifyNew(board, known, byId, front, after);
 
     const next = front;
     for (const id of board.order) {
@@ -187,8 +180,65 @@
     const same = next.length === list.length && next.every((id, i) => list[i].id === id);
     board.lastIn = list;
     board.lastOut = same ? list : next.map((id) => byId.get(id));
+    rebuildGroups(board);
     forgetDropped(board, byId, before);
     return board.lastOut;
+  }
+
+  // What each new item is, decided once when the list changes: a new post at the top, or
+  // the replacement for a card that just went. Being ahead of known cards in the list
+  // means nothing by itself: X moves old posts to the end whenever more load, so ordinary
+  // new posts land before them, and those go to the shortest column like any other.
+  function classifyNew(board, known, byId, front, after) {
+    let lastAlive = -1;
+    for (const [id, i] of known) if (byId.has(id) && i > lastAlive) lastAlive = i;
+    if (lastAlive < 0) return; // nothing to be new relative to
+    for (const id of front) board.kinds.set(id, "front");
+    for (const [anchor, news] of after) {
+      const neighbours = neighboursOfReplaced(board, board.order[known.get(anchor) + 1], byId);
+      if (!neighbours.prev && !neighbours.next) continue;
+      board.kinds.set(news[0], "mid");
+      board.mids.set(news[0], neighbours);
+    }
+    // Taking the place of the very first card.
+    if (front.length && !byId.has(board.order[0])) {
+      const neighbours = neighboursOfReplaced(board, board.order[0], byId);
+      if (neighbours.prev || neighbours.next) {
+        board.kinds.set(front[0], "mid");
+        board.mids.set(front[0], neighbours);
+      }
+    }
+  }
+
+  // If this card just went, what was around it in its column. Something new in its place
+  // goes between those, whichever column that is. Names rather than a position, so it
+  // still holds after other cards go or the columns are dealt again.
+  function neighboursOfReplaced(board, oldId, byId) {
+    const p = oldId && !byId.has(oldId) && board.placed.get(oldId);
+    const col = p && board.columns[p.col];
+    const at = col ? col.indexOf(oldId) : -1;
+    if (at < 0) return {};
+    return { prev: col.slice(0, at).reverse().find((id) => byId.has(id)), next: col.slice(at + 1).find((id) => byId.has(id)) };
+  }
+
+  // Which card each card follows in its conversation or module, read from the list. A
+  // conversation is everything from its marker to the post it names.
+  function rebuildGroups(board) {
+    const order = board.order;
+    board.groupPrev = new Map();
+    let moduleKey = null;
+    for (let k = 0; k < order.length; k++) {
+      const id = order[k];
+      const opens = CONVERSATION.exec(id);
+      if (opens) {
+        const end = order.indexOf(`tweet-${opens[1]}`, k);
+        for (let i = k + 2; i > k && i <= end; i++) board.groupPrev.set(order[i], order[i - 1]);
+      }
+      const mod = MODULE.exec(id);
+      const key = mod ? mod[1] : null;
+      if (key && key === moduleKey) board.groupPrev.set(id, order[k - 1]);
+      moduleKey = key;
+    }
   }
 
   function forgetDropped(board, byId, order) {
@@ -222,9 +272,9 @@
       for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
     }
     for (const id of board.skipped) if (!byId.has(id)) board.skipped.delete(id);
-    for (const id of board.slots.keys()) if (!byId.has(id)) board.slots.delete(id);
-    const g = board.group;
-    if (g && ((g.last && !byId.has(g.last)) || (g.member && !board.placed.has(g.member)))) board.group = null;
+    for (const map of [board.kinds, board.mids]) {
+      for (const id of map.keys()) if (!byId.has(id)) map.delete(id);
+    }
   }
 
   // ---- board --------------------------------------------------------------
@@ -243,13 +293,14 @@
       bottoms: [],
       total: 0,
       dirty: true,
-      group: null, // conversation or module being placed: { last | module, col, member }
+      groupPrev: new Map(), // id -> the card it follows in its conversation or module
+      kinds: new Map(), // unplaced id -> "front" or "mid"; the rest go at the end
+      mids: new Map(), // "mid" id -> { prev, next, anchor }: the cards to place it by
       frontBatch: new Set(), // cards of the new-at-the-top batch still being placed
       frontHeight: [], // height the batch has taken in each column, rebuilt from frontBatch
       frontCount: [], // ...and how many cards, which is where the next one goes
       joinsNext: new Set(), // cards whose next card in the column is joined to them
       requested: new Set(), // unplaced cards the board has asked X to mount
-      slots: new Map(), // new id -> the place of the card it replaced
       stallId: null,
       stallFrames: 0,
       y: 0,
@@ -371,60 +422,57 @@
     });
   }
 
-  const endGroupAt = (b, id) => {
-    if (b.group && id === b.group.last) b.group = null;
-  };
 
-  function placeCard(b, id, atFront, after, slot) {
-    const g = b.group;
-    const joined = !!(g && g.col !== null);
-    if (b.flow === "h") {
-      if (g) {
-        g.col = 0;
-        g.member = id;
-      }
-      if (atFront) b.frontBatch.add(id); // kept for a switch back to the vertical layout
-      void after; // sideways, the order alone says where it goes
-      void slot;
-      b.placed.set(id, { col: 0, join: joined, shownJoin: joined });
-      b.dirty = true;
-      return;
+  // The card this one follows, skipping any in between that have no height.
+  function groupHead(b, id) {
+    let head = b.groupPrev.get(id);
+    while (head && !b.placed.has(head)) head = b.groupPrev.get(head);
+    return head || null;
+  }
+
+  // Where a card new among existing ones goes: by the cards it was given to go by.
+  function midPosition(b, mid) {
+    for (const [id, after] of [[mid.prev, 1], [mid.next, 0]]) {
+      const p = id && b.placed.get(id);
+      const col = p && b.columns[p.col];
+      const at = col ? col.indexOf(id) : -1;
+      if (at >= 0) return { col: p.col, at: at + after };
     }
-    if ((slot && b.columns[slot.col]) || (after && b.placed.has(after))) {
-      const col = slot ? slot.col : b.placed.get(after).col;
-      const at = slot ? Math.min(slot.index, b.columns[col].length) : b.columns[col].indexOf(after) + 1;
-      if (g) {
-        g.col = col;
-        g.member = id;
-      }
-      const join = joined || !!(slot && slot.join);
-      b.columns[col].splice(at, 0, id);
-      b.placed.set(id, { col, join, shownJoin: join });
-      b.dirty = true;
+    return null;
+  }
+
+  function placeCard(b, id, atFront, mid) {
+    const head = groupHead(b, id);
+    const join = !!head;
+    if (atFront) b.frontBatch.add(id);
+    b.dirty = true;
+    if (b.flow === "h") {
+      // Sideways, the order alone says where it goes.
+      b.placed.set(id, { col: 0, join, shownJoin: join });
       return;
     }
     let col;
-    if (joined) {
-      col = g.col;
-    } else if (atFront) {
-      col = shortest(b.frontHeight);
+    if (head) {
+      col = b.placed.get(head).col;
+      b.columns[col].splice(b.columns[col].indexOf(head) + 1, 0, id);
+      if (atFront) b.frontCount[col]++;
     } else {
-      if (b.dirty) relayout(b);
-      col = shortest(b.bottoms);
+      const position = mid && midPosition(b, mid);
+      if (position) {
+        col = position.col;
+        b.columns[col].splice(position.at, 0, id);
+      } else if (atFront) {
+        col = shortest(b.frontHeight);
+        b.columns[col].splice(b.frontCount[col], 0, id);
+        b.frontCount[col]++;
+        b.frontHeight[col] += b.heights.get(id) || 0;
+      } else {
+        if (b.columns.some((c) => c.length) || b.bottoms.length) relayout(b);
+        col = shortest(b.bottoms);
+        b.columns[col].push(id);
+      }
     }
-    if (g) {
-      g.col = col;
-      g.member = id;
-    }
-    if (atFront) {
-      b.columns[col].splice(b.frontCount[col], 0, id);
-      b.frontBatch.add(id);
-      b.frontCount[col]++;
-      b.frontHeight[col] += b.heights.get(id) || 0;
-    } else {
-      b.columns[col].push(id);
-    }
-    b.placed.set(id, { col, join: joined, shownJoin: joined });
+    b.placed.set(id, { col, join, shownJoin: join });
     b.dirty = true;
   }
 
@@ -455,36 +503,28 @@
         continue;
       }
       if (NOT_A_CARD.test(id)) continue;
-      // New before the end of the list. With a card ahead of it, it belongs right after
-      // that card (X swapped a post for a "not interested" note, say). With none, it's
-      // a new post at the top.
+      if (MARKER.test(id)) {
+        b.skipped.add(id);
+        continue;
+      }
+      const kind = b.kinds.get(id);
       const within = k < lastPlaced;
-      const slot = b.slots.get(id);
-      const after = within && !slot ? prevPlaced : null;
-      const atFront = within && !after && !slot;
+      const mid = b.mids.get(id) || null;
+      const atFront = kind === "front" || (!kind && within && !prevPlaced);
+      // Behind cards already placed, it can't hold up the ones after it, and waits for the
+      // view to come near (a card back from having no height, say).
+      const behind = !!mid || (!kind && within && !atFront);
       if (atFront && farFromTop(b)) {
         frontPending = true; // paused, not finished
         continue;
       }
-      if ((after || slot) && !b.requested.has(id) && !b.seen.has(id)) continue; // not near the view yet
       if (b.skipped.has(id)) {
-        if ((b.heights.get(id) || 0) <= 1) {
-          endGroupAt(b, id);
-          continue;
-        }
+        if ((b.heights.get(id) || 0) <= 1) continue;
         b.skipped.delete(id);
-      }
-      // A conversation opens with an empty marker. It needs no measuring, and can't count
-      // on being mounted: nothing with no height is inside the window X is asked for.
-      const opens = CONVERSATION.exec(id);
-      if (opens) {
-        const last = `tweet-${opens[1]}`;
-        b.group = b.placed.has(last) || b.skipped.has(last) ? null : { last, col: null };
-        b.skipped.add(id);
-        continue;
       }
       const seen = b.seen.get(id);
       if (!seen || seen.frames < SETTLE_FRAMES) {
+        if (behind) continue;
         if (atFront) frontPending = true;
         // Only a card that was asked for can stall; the rest just aren't due yet.
         if (!b.requested.has(id)) break;
@@ -497,21 +537,19 @@
           break;
         }
         b.skipped.add(id); // X never rendered it; don't let it hold up the rest
-        endGroupAt(b, id);
+        b.kinds.delete(id);
+        b.mids.delete(id);
         continue;
       }
-      const mod = MODULE.exec(id);
-      if (mod && !(b.group && b.group.module === mod[1])) b.group = { module: mod[1], col: null };
-      else if (!mod && b.group && b.group.module) b.group = null;
       if (seen.h <= 1) {
         b.skipped.add(id);
       } else {
-        placeCard(b, id, atFront, after, slot);
-        b.slots.delete(id);
+        placeCard(b, id, atFront, mid);
         prevPlaced = id;
         placedAny = true;
       }
-      endGroupAt(b, id);
+      b.kinds.delete(id);
+      b.mids.delete(id);
     }
     if (waiting === null) b.stallId = null;
     if (!frontPending) b.frontBatch.clear();
@@ -531,8 +569,6 @@
       b.columns[col].push(id);
       bottoms[col] += (b.heights.get(id) || 0) + GAP;
     }
-    const g = b.group;
-    if (g && g.member) g.col = b.placed.get(g.member).col;
     b.dirty = true;
   }
 
@@ -701,7 +737,18 @@
     let wantFront = farFromTop(b) ? 0 : cols * 3; // new posts at the top don't depend on column depth
     const lastPlaced = lastPlacedIndex(b, list);
     b.requested.clear();
-    let prevKept = false;
+    let wantMid = cols * 2;
+    let prevPlacedId = null;
+    const nearView = (id) => {
+      const p = id && b.placed.get(id);
+      if (!p) return false;
+      if (sideways) {
+        const x = p.col * stride;
+        return x + b.colw >= y0 && x <= y1;
+      }
+      const t = b.tops.get(id);
+      return t + (b.heights.get(id) || 0) >= y0 && t <= y1;
+    };
     let k0 = -1;
     let k1 = -1;
     let top = 0;
@@ -719,10 +766,16 @@
         } else {
           keep = t + (b.heights.get(id) || 0) >= y0 && t <= y1;
         }
-      } else if (!NOT_A_CARD.test(id) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
-        if (b.slots.has(id) || (k < lastPlaced && prevKept)) {
-          keep = true; // new in the middle, right after something on view
-        } else if (k < lastPlaced) {
+      } else if (!NOT_A_CARD.test(id) && !MARKER.test(id) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
+        const kind = b.kinds.get(id);
+        const mid = b.mids.get(id);
+        const behindCard = !kind && k < lastPlaced && prevPlacedId;
+        if (mid || behindCard) {
+          if (wantMid > 0 && (mid ? nearView(mid.prev) || nearView(mid.next) : nearView(prevPlacedId))) {
+            keep = true;
+            wantMid--;
+          }
+        } else if (kind === "front" || k < lastPlaced) {
           if (wantFront > 0) {
             keep = true;
             wantFront--;
@@ -733,7 +786,7 @@
         }
         if (keep) b.requested.add(id);
       }
-      if (b.placed.has(id) || keep) prevKept = keep;
+      if (b.placed.has(id)) prevPlacedId = id;
       if (keep) {
         if (k0 < 0) {
           k0 = k;
@@ -775,10 +828,10 @@
       if (cell.__xm !== v) cell.style.translate = cell.__xm = v;
       if (!cell.hasAttribute("data-xm-placed")) cell.setAttribute("data-xm-placed", "");
       const cap = p.capH ? `${p.capH}px` : "";
-      if (cell.style.maxHeight !== cap) {
-        cell.style.maxHeight = cap;
-        cell.toggleAttribute("data-xm-squeezed", !!cap);
-      }
+      if (cell.style.maxHeight !== cap) cell.style.maxHeight = cap;
+      // Fades out only while there's more to scroll to.
+      const more = !!cap && cell.scrollTop + cell.clientHeight < cell.scrollHeight - 1;
+      if (cell.hasAttribute("data-xm-squeezed") !== more) cell.toggleAttribute("data-xm-squeezed", more);
       const join = [p.shownJoin && "prev", b.joinsNext.has(id) && "next"].filter(Boolean).join(" ");
       if ((cell.getAttribute("data-xm-join") || "") !== join) {
         if (join) cell.setAttribute("data-xm-join", join);

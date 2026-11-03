@@ -37,7 +37,7 @@ const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollT
 class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
-u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article data-testid="tweet" style="height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
+u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
@@ -263,6 +263,68 @@ const swap = await p.evaluate(async () => {
   return { ...out, sameSlot: !!note && note.style.translate.split(" ")[0] === col && Math.abs(parseFloat(note.style.translate.split(" ")[1]) - parseFloat(before.split(" ")[1])) < 1 };
 });
 check("a post swapped for a small note keeps its place, and the column closes up", swap.placed && swap.sameSlot, swap);
+const swapMix = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  window.scrollTo(0, 0); await sleep(300);
+  const byCol = {};
+  for (const [id, c] of S._cells) { const e = c.getElement(); if (id.startsWith("tweet-") && e.hasAttribute("data-xm-placed")) { const [x, y] = e.style.translate.split(" ").map(parseFloat); (byCol[x] = byCol[x] || []).push({ id, y }); } }
+  const col = Object.values(byCol).find((a) => a.length >= 4).sort((m, n) => m.y - n.y);
+  const [A, B, C, D] = col.map((c) => c.id);
+  S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== A).map((i) => (i.id === C ? { id: "feedback-3" } : i)) };
+  S._scheduleCriticalUpdate(); await sleep(700);
+  const y = (id) => { const c = S._cells.get(id)?.getElement(); return c && c.hasAttribute("data-xm-placed") ? parseFloat(c.style.translate.split(" ")[1]) : null; };
+  return { order: [y(B), y("feedback-3"), y(D)] };
+});
+check("a replacement stays between its neighbours even when others go too", swapMix.order.every((v) => v !== null) && swapMix.order[0] < swapMix.order[1] && swapMix.order[1] < swapMix.order[2], swapMix);
+const topBatch = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  window.scrollTo(0, 0); await sleep(300);
+  const news = [9001, 9002, 9003, 9004].map((n) => ({ id: "tweet-" + n }));
+  S.props = { ...S.props, list: [...news, ...S.props.list] };
+  S._scheduleCriticalUpdate(); await sleep(800);
+  const at = news.map((n) => S._cells.get(n.id)?.getElement()?.style.translate);
+  return { at, cols: new Set(at.map((v) => v && v.split(" ")[0])).size, tops: at.map((v) => v && parseFloat(v.split(" ")[1])) };
+});
+check("new posts at the top spread across columns, in order", topBatch.cols >= 3 && topBatch.tops.every((t) => t !== null && t < 500), topBatch);
+// X moves old posts to the end when more load, so new ones arrive ahead of them
+const moved = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const list = S.props.list;
+  const unplaced = list.filter((i) => !S._cells.has(i.id)).slice(-12);
+  const placedHead = list.filter((i) => !unplaced.includes(i));
+  const fresh = Array.from({ length: 24 }, (_, n) => ({ id: "tweet-" + (7000 + n) }));
+  S.props = { ...S.props, list: [...placedHead.slice(0, placedHead.length - 8), ...fresh, ...placedHead.slice(placedHead.length - 8), ...unplaced] };
+  S._scheduleCriticalUpdate();
+  const doc = document.documentElement;
+  for (let i = 0; i < 60; i++) { window.scrollTo(0, doc.scrollHeight); await sleep(90); }
+  const counts = {};
+  for (const [id, c] of S._cells) { const e = c.getElement(); if (e.hasAttribute("data-xm-placed")) { const x = e.style.translate.split(" ")[0]; counts[x] = (counts[x] || 0) + 1; } }
+  const placedFresh = fresh.filter((f) => S._cells.get(f.id)?.getElement()?.hasAttribute("data-xm-placed")).length;
+  const bottoms = {};
+  for (const [id, c] of S._cells) { const e = c.getElement(); if (e.hasAttribute("data-xm-placed")) { const [x, y] = e.style.translate.split(" ").map(parseFloat); bottoms[x] = Math.max(bottoms[x] || 0, y + e.offsetHeight); } }
+  const vals = Object.values(bottoms);
+  window.scrollTo(0, 0); await sleep(400);
+  return { counts, spread: Math.max(...vals) - Math.min(...vals), cols: vals.length };
+});
+check("new posts landing ahead of moved ones still balance the columns", moved.cols === 4 && moved.spread < 700, moved);
+const noTail = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const after = S.props.list.findIndex((i) => i.id === "tweet-5");
+  S.props = { ...S.props, list: [...S.props.list, { id: "impressionPlaceholder-home-conversation-77777" }, { id: "tweet-8001" }, { id: "tweet-8002" }] };
+  S._scheduleCriticalUpdate();
+  const b = document.documentElement;
+  for (let i = 0; i < 30; i++) { window.scrollTo(0, b.scrollHeight); await sleep(100); const c = S._cells.get("tweet-8002")?.getElement(); if (c && c.hasAttribute("data-xm-placed")) break; }
+  await sleep(200);
+  const j = (id) => { const c = S._cells.get(id)?.getElement(); return c ? c.getAttribute("data-xm-join") : "unmounted"; };
+  const out = { a: j("tweet-8001"), b: j("tweet-8002"), after };
+  window.scrollTo(0, 0); await sleep(300);
+  return out;
+});
+check("a conversation marker naming a post that isn't there joins nothing", !noTail.a && !noTail.b, noTail);
 const swapDeep = await p.evaluate(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.scroller;
