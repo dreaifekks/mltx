@@ -39,7 +39,11 @@ u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBound
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
-const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();</script>`);
+const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();
+const root=document.createElement("div");document.querySelector('[data-testid="primaryColumn"]').append(root);
+const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{}};window.scroller=S;
+const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.exec(location.pathname);if(!m)return;const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML='<article data-testid="tweet" style="height:300px">post '+m[1]+'<div role="group"><button data-testid="reply">reply</button></div></article><div><div data-testid="tweetTextarea_0">box</div></div>';root.append(c);S._cells.set("tweet-"+m[1],{getElement:()=>c})};render();addEventListener("popstate",render);
+</script>`);
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe>`;
 
 const hits = [];
@@ -259,6 +263,31 @@ await p.waitForTimeout(400);
 ps = await postState();
 const framePath = await p.frames().find((x) => x.name() === "xm-post").evaluate(() => location.pathname);
 check("the next post reuses the window, without loading a page", ps.open && ps.frameHref !== statusHref && framePath === ps.frameHref && hits.filter((u) => u === "/i/history").length === entryBefore, { ps, framePath, entryBefore });
+
+// ---- two panes, ready signal, and leaving the post inside the window ------------------
+const postFrameOf = () => p.frames().find((x) => x.name() === "xm-post");
+const loadingCleared = async () => { const t0 = Date.now(); while ((await p.evaluate(() => document.documentElement.hasAttribute("data-xm-post-loading"))) && Date.now() - t0 < 6000) await p.waitForTimeout(20); return Date.now() - t0; };
+const panes = () => postFrameOf().evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width)]; }; return { on: document.documentElement.hasAttribute("data-xm-post"), w: innerWidth, focal: r("[data-xm-focal]"), actions: r("[data-xm-actions]"), composer: r("[data-xm-composer]"), pc: r('[data-testid="primaryColumn"]'), path: location.pathname }; });
+await p.waitForTimeout(300);
+let pn = await panes();
+const split = Math.round(pn.w * 0.666);
+check("the post sits on the left, actions, reply box and replies on the right", pn.on && pn.focal[0] === 0 && pn.focal[2] === split && pn.actions[0] === split && pn.actions[1] === 0 && pn.composer[0] === split && pn.pc[0] === split, pn);
+await p.keyboard.press("Escape");
+await p.waitForTimeout(150);
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();
+const readyMs = await loadingCleared();
+check("the window is ready as soon as the post is, not on the timeout", readyMs < 1500, readyMs);
+const hrefShown = (await postState()).frameHref;
+await postFrameOf().evaluate(() => { history.replaceState(null, "", "/someone"); dispatchEvent(new PopStateEvent("popstate", { state: null })); });
+await p.waitForTimeout(250);
+pn = await panes();
+check("leaving the post inside the window goes back to X's plain page", !pn.on && pn.focal === null && pn.path === "/someone", pn);
+await p.keyboard.press("Escape");
+await p.waitForTimeout(150);
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();
+const again = await loadingCleared();
+pn = await panes();
+check("reopening that post shows the post, not where the window had wandered", pn.on && pn.path === hrefShown && again < 1500, { pn, again });
 await p.keyboard.press("Escape");
 await p.waitForTimeout(200);
 check("Esc closes it", !(await postState()).open);

@@ -47,6 +47,8 @@
   // isolation boundary: the frame is x.com's own code, same origin as the page.
   const FRAME_SANDBOX = "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads";
   const FRAME_ALLOW = "autoplay; fullscreen; clipboard-write; encrypted-media";
+  // Parts of a card that do something of their own when clicked.
+  const CARD_CONTROLS = 'button, input, textarea, video, [role="button"], [role="menuitem"], [role="slider"], [role="radio"], [role="checkbox"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid^="card."], [data-testid="cardPoll"]';
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -786,12 +788,36 @@
     root.removeAttribute("data-xm-post-loading");
   }
 
+  // Points the warm frame's router at a post. False if the frame can't take it: it was
+  // refused, went elsewhere, or hasn't got a page yet.
+  function pointPostFrame(href) {
+    try {
+      const win = postFrame.contentWindow;
+      if (win.location.origin !== location.origin) return false;
+      if (win.location.pathname !== href) {
+        win.history.replaceState(null, "", href);
+        win.dispatchEvent(new win.PopStateEvent("popstate", { state: null }));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function postShows(href) {
+    try {
+      return postFrame.contentWindow.location.pathname === href;
+    } catch {
+      return false;
+    }
+  }
+
   function openPost(href) {
     closePanel();
     setTabsOpen(false);
     buildPost();
     root.setAttribute("data-xm-post-open", "");
-    if (href === postHref) return;
+    if (postFrame && href === postHref && postShows(href)) return;
     postHref = href;
     root.setAttribute("data-xm-post-loading", "");
     clearTimeout(postReadyTimer);
@@ -808,9 +834,7 @@
       return;
     }
     postFrame.dataset.xmHref = href;
-    const win = postFrame.contentWindow;
-    win.history.replaceState(null, "", href);
-    win.dispatchEvent(new win.PopStateEvent("popstate", { state: null }));
+    if (!pointPostFrame(href)) postFrame.src = panelEntryUrl(href);
   }
 
   function closePost() {
@@ -821,8 +845,12 @@
 
   addEventListener("message", (e) => {
     if (e.origin !== location.origin || !e.data) return;
-    if (e.data.xm === "post-ready") postLoaded();
-    else if (e.data.xm === "close") {
+    const fromPost = postFrame && e.source === postFrame.contentWindow;
+    if (e.data.xm === "post-ready") {
+      // A message about the post before this one mustn't uncover this one.
+      if (fromPost && postHref && postHref.endsWith(`/status/${e.data.id}`)) postLoaded();
+    } else if (e.data.xm === "close") {
+      if (!fromPost && ![...panelFrames.values()].some((f) => f.contentWindow === e.source)) return;
       closePost();
       closePanel();
     }
@@ -850,7 +878,7 @@
       if (!t.closest('[data-testid="tweet-text-show-more-link"]')) {
         const link = t.closest("a[href]");
         if (link && link !== statusLink) return;
-        if (t.closest('button, [role="button"], [role="menuitem"], input, textarea')) return;
+        if (t.closest(CARD_CONTROLS)) return;
         // A quoted post is a link of its own; X goes there.
         const quote = t.closest('[role="link"]');
         if (quote && quote !== article && article.contains(quote)) return;

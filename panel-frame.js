@@ -76,7 +76,8 @@ function startPostView() {
   const lists = [];
   let latest = window.scroller;
   if (latest) lists.push(latest);
-  let focalId = null;
+  let focalId = null; // the post currently taken out of the list's flow
+  let wanted = null; // the post the address asks for
   let readyFor = null;
 
   Object.defineProperty(window, "scroller", {
@@ -110,67 +111,95 @@ function startPostView() {
     S._getHeightForItemId = (id) => (id === focalId ? 0 : heightById(id));
     S._getRenderCandidates = (anchor, rect) => {
       const out = candidates(anchor, rect);
+      // Just this one item, on top of the replies' own window: widening the window to
+      // reach it would mount every reply in between.
       const at = out.allItemsWithPositions.findIndex((x) => x.itemId === focalId);
       if (at >= 0 && (at < out.slice.start || at >= out.slice.end)) {
-        out.slice = { start: Math.min(at, out.slice.start), end: Math.max(at + 1, out.slice.end) };
-        out.newRenderedItems = out.allItemsWithPositions.slice(out.slice.start, out.slice.end);
+        out.newRenderedItems = [out.allItemsWithPositions[at], ...out.newRenderedItems];
       }
       return out;
     };
     return true;
   }
 
-  const mark = (el, name) => {
-    if (!el.hasAttribute(name)) el.setAttribute(name, "");
-  };
+  const MARKS = ["data-xm-focal", "data-xm-actions", "data-xm-composer"];
+  let marked = [null, null, null];
 
-  function clearMarks(cell) {
-    for (const name of ["data-xm-focal", "data-xm-actions", "data-xm-composer"]) {
-      for (const el of document.querySelectorAll(`[${name}]`)) {
-        if (name !== "data-xm-focal" || el !== cell) el.removeAttribute(name);
-      }
+  function setMarks(next) {
+    next.forEach((el, i) => {
+      if (marked[i] === el) return;
+      if (marked[i]) marked[i].removeAttribute(MARKS[i]);
+      if (el) el.setAttribute(MARKS[i], "");
+    });
+    marked = next;
+  }
+
+  function setVar(name, value) {
+    if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
+  }
+
+  // Back to X's plain page: its route has no post, or the post isn't laid out as expected.
+  function standDown(S) {
+    setMarks([null, null, null]);
+    root.removeAttribute("data-xm-post");
+    if (focalId) {
+      focalId = null;
+      if (S) S._scheduleCriticalUpdate();
+    }
+  }
+
+  function windowClosed() {
+    try {
+      return !window.top.document.documentElement.hasAttribute("data-xm-post-open");
+    } catch {
+      return false;
     }
   }
 
   function tick() {
+    if (windowClosed()) return;
     const match = STATUS.exec(location.pathname);
-    const S = match && liveList();
-    if (!S || !patch(S)) {
-      root.removeAttribute("data-xm-post");
-      return;
+    const S = liveList();
+    if (!S || !patch(S)) return standDown(null);
+    if (!match) {
+      wanted = null; // coming back to the same post has to count as new
+      return standDown(S);
     }
+
     const id = `tweet-${match[1]}`;
-    if (id !== focalId) {
-      focalId = id;
+    if (id !== wanted) {
+      wanted = id;
       readyFor = null;
-      clearMarks(null);
-      S._scheduleCriticalUpdate();
+      standDown(S);
     }
     const comp = S._cells.get(id);
     const cell = comp && comp.getElement && comp.getElement();
-    if (!cell) return;
-
-    const actions = [...cell.querySelectorAll('[role="group"]')].find((g) => g.querySelector('[data-testid="reply"]'));
-    if (!actions) return;
-    clearMarks(cell);
-    mark(cell, "data-xm-focal");
-    mark(actions, "data-xm-actions");
+    const actions = cell && [...cell.querySelectorAll('[role="group"]')].find((g) => g.querySelector('[data-testid="reply"]'));
+    if (!actions) {
+      // Keep asking X to mount it, but as a normal cell until it's there.
+      return standDown(S);
+    }
 
     // The reply box's outermost wrapper that isn't also around the post.
     let box = cell.querySelector('[data-testid="tweetTextarea_0"]');
     while (box && box.parentElement !== cell && !box.parentElement.querySelector("article")) box = box.parentElement;
-    if (box && box !== cell) mark(box, "data-xm-composer");
+    if (box === cell) box = null;
 
-    mark(root, "data-xm-post");
-    const top = actions.offsetHeight + (box && box !== cell ? box.offsetHeight : 0);
-    root.style.setProperty("--xm-right-top", `${top}px`);
-    root.style.setProperty("--xm-actions-height", `${actions.offsetHeight}px`);
+    if (focalId !== id) {
+      focalId = id;
+      S._scheduleCriticalUpdate();
+    }
+    setMarks([cell, actions, box]);
+    if (!root.hasAttribute("data-xm-post")) root.setAttribute("data-xm-post", "");
+    setVar("--xm-actions-height", `${actions.offsetHeight}px`);
+    setVar("--xm-right-top", `${actions.offsetHeight + (box ? box.offsetHeight : 0)}px`);
+    setVar("--xm-canvas", getComputedStyle(document.body).backgroundColor);
 
     if (readyFor !== id && cell.offsetHeight > 0) {
       readyFor = id;
-      window.top.postMessage({ xm: "post-ready" }, location.origin);
+      window.top.postMessage({ xm: "post-ready", id: match[1] }, location.origin);
     }
   }
 
-  setInterval(tick, 60);
+  setInterval(tick, 80);
 }

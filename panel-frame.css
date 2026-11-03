@@ -67,7 +67,7 @@ html[data-xm-post] [data-xm-focal] {
   justify-content: safe center;
   box-sizing: border-box;
   padding: 16px 12px;
-  background: Canvas;
+  background: var(--xm-canvas, Canvas);
   border-right: 1px solid rgb(127 127 127 / 0.28);
 }
 
@@ -89,7 +89,7 @@ html[data-xm-post] [data-xm-actions] {
   margin: 0 !important;
   padding: 0 16px !important;
   box-sizing: border-box;
-  background: Canvas;
+  background: var(--xm-canvas, Canvas);
   border-top-width: 0 !important;
   border-bottom: 1px solid rgb(127 127 127 / 0.28) !important;
 }
@@ -102,6 +102,6 @@ html[data-xm-post] [data-xm-composer] {
   z-index: 2;
   max-height: 50vh;
   overflow-y: auto;
-  background: Canvas;
+  background: var(--xm-canvas, Canvas);
   border-bottom: 1px solid rgb(127 127 127 / 0.28);
 }
