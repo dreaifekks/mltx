@@ -39,6 +39,8 @@
   const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
   const GESTURE_DEADZONE = 8; // px of movement before an unclear gesture picks a direction
   const SIDEWAYS_BIAS = 2; // vertical must exceed sideways by this much to count as vertical
+  const NATIVE_MIN_DX = 3; // px of sideways in a first event to hand the gesture to the browser
+  const GESTURE_FORGET = 1000; // ms after which movement too small to decide is dropped
   const GESTURE_GAP = 180; // ms without wheel events before the next one starts a new gesture
   const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
   const NAV_LABELS_MIN_WINDOW = 1265; // X draws its rail labels from about this wide
@@ -1480,7 +1482,9 @@
   // often opens with a stray dx=0, dy=-1, and locking onto that would turn the whole swipe
   // into a vertical one, running backwards. So:
   //  - clearly sideways from the first event: entirely native, the smoothest case, and
-  //    the small vertical wobble at the end of its inertia can't drag the list about.
+  //    the small vertical wobble at the end of its inertia can't drag the list about. It
+  //    takes more than a pixel to count: choosing native can't be taken back, and it
+  //    would leave a vertical swipe with nothing to move.
   //  - otherwise hold the movement until there's enough to tell, then apply it all. Sideways
   //    wins unless vertical clearly dominates, since that's what this list scrolls in.
   //  - a vertical gesture starting on a card too tall for its column scrolls that card.
@@ -1493,16 +1497,24 @@
       if (!t.closest || t.closest('#layers, [role="dialog"], [data-xm-tabs]')) return;
 
       const now = performance.now();
-      if (now - gesture.at > GESTURE_GAP) resetGesture();
+      const gap = now - gesture.at;
+      // Small steps too far apart to reach a decision still add up, rather than vanishing.
+      if (gap > GESTURE_GAP && (gesture.kind || gap > GESTURE_FORGET)) resetGesture();
       gesture.at = now;
-      const unit = e.deltaMode === 1 ? 40 : 1;
+      // The browser is already scrolling this natively, whatever the timing suggests.
+      // Adding to it by hand is exactly what would run it backwards.
+      if (!e.cancelable) {
+        gesture.kind = "native";
+        return;
+      }
+      const list = current.el;
+      const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? list.clientWidth : 1;
       const dx = e.deltaX * unit;
       const dy = e.deltaY * unit;
-      const list = current.el;
 
       if (!gesture.kind) {
         const first = !gesture.dx && !gesture.dy;
-        if (first && dx !== 0 && Math.abs(dx) * SIDEWAYS_BIAS >= Math.abs(dy) && t.closest("[data-xm-board]")) {
+        if (first && Math.abs(dx) >= NATIVE_MIN_DX && Math.abs(dx) * SIDEWAYS_BIAS >= Math.abs(dy) && t.closest("[data-xm-board]")) {
           gesture.kind = "native";
           return;
         }

@@ -493,10 +493,25 @@ for (let i = 0; i < 12; i++) { await p.mouse.wheel(i % 2 ? 2 : -2, -25); await p
 await p.waitForTimeout(250);
 fl = await flow();
 check("a vertical gesture stays vertical through a sideways wobble", fl.sl < startV - 200, { before: startV, now: fl.sl });
+// a pixel of sideways noise first doesn't leave a vertical swipe with nothing to move
 await p.waitForTimeout(300);
 await p.mouse.wheel(600, 0);
 await p.waitForTimeout(300);
 fl = await flow();
+const startNoise = fl.sl;
+await p.waitForTimeout(250);
+await p.mouse.wheel(1, 0);
+for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, 40); await p.waitForTimeout(16); }
+await p.waitForTimeout(250);
+fl = await flow();
+check("a vertical swipe opening with sideways noise still moves the list", fl.sl > startNoise + 250, { before: startNoise, now: fl.sl });
+// small slow steps add up instead of vanishing
+await p.waitForTimeout(300);
+const startSlow = fl.sl;
+for (let i = 0; i < 6; i++) { await p.mouse.wheel(0, 4); await p.waitForTimeout(220); }
+await p.waitForTimeout(150);
+fl = await flow();
+check("small slow wheel steps still move it", fl.sl > startSlow + 5, { before: startSlow, now: fl.sl });
 const overRail = fl.sl;
 await p.waitForTimeout(300);
 await p.mouse.move(30, 400);
