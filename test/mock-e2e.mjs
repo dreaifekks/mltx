@@ -299,7 +299,8 @@ const moved = await p.evaluate(async () => {
   S.props = { ...S.props, list: [...placedHead.slice(0, placedHead.length - 8), ...fresh, ...placedHead.slice(placedHead.length - 8), ...unplaced] };
   S._scheduleCriticalUpdate();
   const doc = document.documentElement;
-  for (let i = 0; i < 60; i++) { window.scrollTo(0, doc.scrollHeight); await sleep(90); }
+  const seenFresh = new Set();
+  for (let i = 0; i < 60; i++) { window.scrollTo(0, doc.scrollHeight); await sleep(90); for (const f of fresh) if (S._cells.get(f.id)?.getElement()?.hasAttribute("data-xm-placed")) seenFresh.add(f.id); }
   const counts = {};
   for (const [id, c] of S._cells) { const e = c.getElement(); if (e.hasAttribute("data-xm-placed")) { const x = e.style.translate.split(" ")[0]; counts[x] = (counts[x] || 0) + 1; } }
   const placedFresh = fresh.filter((f) => S._cells.get(f.id)?.getElement()?.hasAttribute("data-xm-placed")).length;
@@ -307,9 +308,39 @@ const moved = await p.evaluate(async () => {
   for (const [id, c] of S._cells) { const e = c.getElement(); if (e.hasAttribute("data-xm-placed")) { const [x, y] = e.style.translate.split(" ").map(parseFloat); bottoms[x] = Math.max(bottoms[x] || 0, y + e.offsetHeight); } }
   const vals = Object.values(bottoms);
   window.scrollTo(0, 0); await sleep(400);
-  return { counts, spread: Math.max(...vals) - Math.min(...vals), cols: vals.length };
+  return { counts, spread: Math.max(...vals) - Math.min(...vals), cols: vals.length, freshPlaced: seenFresh.size };
 });
 check("new posts landing ahead of moved ones still balance the columns", moved.cols === 4 && moved.spread < 700, moved);
+check("and none of them gets left behind", moved.freshPlaced === 24, moved.freshPlaced);
+const twoInGap = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  window.scrollTo(0, 0); await sleep(300);
+  const byCol = {};
+  for (const [id, c] of S._cells) { const e = c.getElement(); if (id.startsWith("tweet-") && e.hasAttribute("data-xm-placed") && !e.getAttribute("data-xm-join")) { const [x, y] = e.style.translate.split(" ").map(parseFloat); (byCol[x] = byCol[x] || []).push({ id, y }); } }
+  const col = Object.values(byCol).find((a) => a.length >= 4).sort((m, n) => m.y - n.y);
+  const [A, B, C, D] = col.map((c) => c.id);
+  S.props = { ...S.props, list: S.props.list.map((i) => (i.id === B ? { id: "feedback-5" } : i.id === C ? { id: "feedback-6" } : i)) };
+  S._scheduleCriticalUpdate(); await sleep(700);
+  const y = (id) => { const c = S._cells.get(id)?.getElement(); return c && c.hasAttribute("data-xm-placed") ? parseFloat(c.style.translate.split(" ")[1]) : null; };
+  return { ys: [y(A), y("feedback-5"), y("feedback-6"), y(D)] };
+});
+check("two replacements in one gap keep their order", twoInGap.ys.every((v) => v !== null) && twoInGap.ys[0] < twoInGap.ys[1] && twoInGap.ys[1] < twoInGap.ys[2] && twoInGap.ys[2] < twoInGap.ys[3], twoInGap);
+const crossed = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const conv1 = [{ id: "impressionPlaceholder-home-conversation-6003" }, { id: "tweet-6001" }, { id: "impressionPlaceholder-home-conversation-6005" }, { id: "tweet-6004" }, { id: "tweet-6005" }, { id: "tweet-6003" }];
+  S.props = { ...S.props, list: [...S.props.list, ...conv1] };
+  S._scheduleCriticalUpdate();
+  const doc = document.documentElement;
+  for (let i = 0; i < 40; i++) { window.scrollTo(0, doc.scrollHeight); await sleep(90); if (S._cells.get("tweet-6003")?.getElement()?.hasAttribute("data-xm-placed")) break; }
+  await sleep(200);
+  const j = (id) => { const c = S._cells.get(id)?.getElement(); return c ? c.getAttribute("data-xm-join") : "unmounted"; };
+  const out = { a: j("tweet-6001"), inner1: j("tweet-6004"), inner2: j("tweet-6005"), tail: j("tweet-6003") };
+  window.scrollTo(0, 0); await sleep(300);
+  return out;
+});
+check("a conversation's range doesn't swallow another one", !crossed.a && !crossed.tail && crossed.inner1 === "next" && crossed.inner2 === "prev", crossed);
 const noTail = await p.evaluate(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.scroller;

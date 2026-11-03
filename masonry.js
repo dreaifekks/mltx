@@ -34,6 +34,7 @@
   const COLS_KEY = "xm-cols";
   const NAV_KEY = "xm-nav";
   const FLOW_KEY = "xm-flow";
+  const MAX_THREAD = 12; // posts a conversation in the feed can span
   const REPLY_SHARE = 0.6; // sideways: how much of a column a reply can keep in a squeezed conversation
   const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
   const GESTURE_GAP = 180; // ms without wheel events before the next one starts a new gesture
@@ -169,12 +170,17 @@
     }
     classifyNew(board, known, byId, front, after);
 
+    // Only a replacement stays where X put it. Anything else new goes to the end, in X's
+    // order: left among cards already placed and scrolled past, it would drag the mounted
+    // range back to them, or wait for a view that never returns.
     const next = front;
     for (const id of board.order) {
       if (!byId.has(id)) continue;
       next.push(id);
-      if (after.has(id)) next.push(...after.get(id));
+      if (after.has(id) && board.mids.has(after.get(id)[0])) next.push(after.get(id)[0]);
     }
+    const inPlace = new Set(next);
+    for (const item of list) if (!inPlace.has(item.id)) next.push(item.id);
     const before = board.order;
     board.order = next;
     const same = next.length === list.length && next.every((id, i) => list[i].id === id);
@@ -231,8 +237,13 @@
       const id = order[k];
       const opens = CONVERSATION.exec(id);
       if (opens) {
+        // Only an unbroken run of posts ending at the one it names. Anything else in the
+        // way means the posts aren't known to belong together, so they stay separate.
         const end = order.indexOf(`tweet-${opens[1]}`, k);
-        for (let i = k + 2; i > k && i <= end; i++) board.groupPrev.set(order[i], order[i - 1]);
+        const run = end > k && end - k <= MAX_THREAD ? order.slice(k + 1, end + 1) : [];
+        if (run.every((m) => m.startsWith("tweet-"))) {
+          for (let i = 1; i < run.length; i++) board.groupPrev.set(run[i], run[i - 1]);
+        }
       }
       const mod = MODULE.exec(id);
       const key = mod ? mod[1] : null;
@@ -275,6 +286,15 @@
     for (const map of [board.kinds, board.mids]) {
       for (const id of map.keys()) if (!byId.has(id)) map.delete(id);
     }
+    // A replacement with nothing left to go by is just a card now.
+    for (const [id, mid] of board.mids) {
+      if (mid.prev && !byId.has(mid.prev)) mid.prev = null;
+      if (mid.next && !byId.has(mid.next)) mid.next = null;
+      if (!mid.prev && !mid.next) {
+        board.mids.delete(id);
+        board.kinds.delete(id);
+      }
+    }
   }
 
   // ---- board --------------------------------------------------------------
@@ -295,7 +315,7 @@
       dirty: true,
       groupPrev: new Map(), // id -> the card it follows in its conversation or module
       kinds: new Map(), // unplaced id -> "front" or "mid"; the rest go at the end
-      mids: new Map(), // "mid" id -> { prev, next, anchor }: the cards to place it by
+      mids: new Map(), // "mid" id -> { prev, next }: the cards to place it between
       frontBatch: new Set(), // cards of the new-at-the-top batch still being placed
       frontHeight: [], // height the batch has taken in each column, rebuilt from frontBatch
       frontCount: [], // ...and how many cards, which is where the next one goes
@@ -423,10 +443,10 @@
   }
 
 
-  // The card this one follows, skipping any in between that have no height.
+  // The card this one follows, past any with no height.
   function groupHead(b, id) {
     let head = b.groupPrev.get(id);
-    while (head && !b.placed.has(head)) head = b.groupPrev.get(head);
+    while (head && !b.placed.has(head) && b.skipped.has(head)) head = b.groupPrev.get(head);
     return head || null;
   }
 
@@ -444,7 +464,8 @@
   function placeCard(b, id, atFront, mid) {
     const head = groupHead(b, id);
     const join = !!head;
-    if (atFront) b.frontBatch.add(id);
+    const inFront = atFront || (head && b.frontBatch.has(head));
+    if (inFront) b.frontBatch.add(id);
     b.dirty = true;
     if (b.flow === "h") {
       // Sideways, the order alone says where it goes.
@@ -455,12 +476,17 @@
     if (head) {
       col = b.placed.get(head).col;
       b.columns[col].splice(b.columns[col].indexOf(head) + 1, 0, id);
-      if (atFront) b.frontCount[col]++;
+      if (inFront) {
+        b.frontCount[col]++;
+        b.frontHeight[col] += b.heights.get(id) || 0;
+      }
     } else {
       const position = mid && midPosition(b, mid);
       if (position) {
         col = position.col;
         b.columns[col].splice(position.at, 0, id);
+        // Others replacing cards in the same gap come after this one.
+        for (const other of b.mids.values()) if (other !== mid && other.prev === mid.prev && other.next === mid.next) other.prev = id;
       } else if (atFront) {
         col = shortest(b.frontHeight);
         b.columns[col].splice(b.frontCount[col], 0, id);
@@ -541,6 +567,9 @@
         b.mids.delete(id);
         continue;
       }
+      // A reply waits for what it answers, or they'd end up apart for good.
+      const head = groupHead(b, id);
+      if (head && !b.placed.has(head)) continue;
       if (seen.h <= 1) {
         b.skipped.add(id);
       } else {
