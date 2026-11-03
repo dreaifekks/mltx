@@ -36,6 +36,11 @@
   const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
   const NAV_LABELS_MIN_WINDOW = 1265; // X draws its rail labels from about this wide
   const PANEL_CACHE = 3; // side-panel pages kept alive
+  // X's service worker answers navigations to /home, /notifications, /explore, /<user> and
+  // others from a cached page that says X-Frame-Options: DENY, and that never reaches
+  // frame-rules.json. It leaves this route to the network; panel-frame.js then swaps in
+  // the real address before X starts.
+  const PANEL_ENTRY = "/i/history";
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -714,7 +719,8 @@
       // isolation boundary: the frame is x.com's own code, same origin as the page.
       frame.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
       frame.setAttribute("allow", "autoplay; fullscreen; clipboard-write; encrypted-media");
-      frame.src = href;
+      frame.dataset.xmHref = href;
+      frame.src = `${PANEL_ENTRY}?xm-panel=${encodeURIComponent(href)}`;
       panelEl.append(frame);
     }
     panelFrames.set(href, frame);

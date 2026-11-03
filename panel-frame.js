@@ -10,6 +10,14 @@ if (window !== window.top) {
 
   const history = window.history;
   const replace = History.prototype.replaceState;
+
+  // The panel loads every page through a route X's service worker leaves alone, and
+  // the address changes to the real page here, before X reads it. See PANEL_ENTRY in
+  // masonry.js.
+  const target = new URLSearchParams(location.search).get("xm-panel");
+  if (target && target.startsWith("/") && !target.startsWith("//")) {
+    replace.call(history, null, "", target);
+  }
   const behind = []; // entries before the current one
 
   history.pushState = (state, title, url) => {

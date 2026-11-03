@@ -20,6 +20,8 @@ masonry that fills the window. Every other page stays as X renders it.
   clicking the icon again brings the page back as it was. The 3 most recently used
   pages stay alive; each is a full X page in an iframe, so they cost memory.
 - `frame-rules.json` removes `X-Frame-Options` only for x.com framed by x.com.
+  Pages enter the panel through `/i/history`, because X's service worker answers
+  `/notifications`, `/<user>` and others from a cached page the rule can't reach.
 - The post box is gone from the timeline. The rail's + button opens the composer.
 
 ## How it works

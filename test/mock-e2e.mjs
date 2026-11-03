@@ -18,6 +18,8 @@ const ext = new URL("..", import.meta.url).pathname;
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", dir + "/k.pem", "-out", dir + "/c.pem", "-days", "1", "-subj", "/CN=x.com"], { stdio: "ignore" });
 
 const NAV = [["/home", "Home", "主页"], ["/notifications", "Notifications", "通知"], ["/i/chat", "Chat", "聊天"], ["/i/bookmarks", "Bookmarks", "书签"], ["/inkks", "Profile", "资料"]];
+// Like X's: these navigations get a cached page saying DENY, without reaching the network.
+const SW = `self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",(e)=>e.waitUntil(clients.claim()));self.addEventListener("fetch",(e)=>{const u=new URL(e.request.url);if(e.request.mode==="navigate"&&["/notifications","/inkks"].includes(u.pathname)&&!u.search.includes("no-sw"))e.respondWith(new Response("<h1>shell</h1>",{headers:{"content-type":"text/html","x-frame-options":"DENY"}}))});`;
 const page = (body) => `<!doctype html><html lang="zh"><head><style>body{margin:0;background:#000;color:#e7e9ea;font-family:sans-serif}#bar{position:sticky;top:0;z-index:3;will-change:transform;height:53px}#blur{backdrop-filter:blur(12px)}[data-testid=primaryColumn]{width:600px;border-left:1px solid rgb(47,51,54)}main{display:flex;flex:1}#app{display:flex}header{flex:1;display:flex;justify-content:flex-end}header>div{width:275px}header>div>div{position:fixed;width:275px;height:100vh}nav a{display:block;color:inherit}nav a>div{display:flex;padding:12px}</style>
 <script>window.__onAtHead=document.documentElement.hasAttribute('data-xm-on');</script></head><body>${body}</body></html>`;
 const rail = `<header role="banner"><div><div><div><h1 style="margin:0;width:52px;height:52px"><a href="/home" aria-label="X">X</a></h1><nav>${NAV.map(([h, id, t]) => `<a href="${h}" data-testid="AppTabBar_${id}_Link"><div><div>●</div><div dir="ltr"><span>${t}</span></div></div></a>`).join("")}</nav><a href="/compose/post" data-testid="SideNav_NewTweet_Button">+</a></div></div></div></header>`;
@@ -47,6 +49,7 @@ const server = https.createServer({ key: fs.readFileSync(dir + "/k.pem"), cert: 
   if (host !== "x.com") return res.writeHead(200, { "content-type": "text/html" }).end(third);
   hits.push(url);
   if (url === "/favicon.ico") return res.writeHead(204).end();
+  if (url === "/sw.js") return res.writeHead(200, { "content-type": "text/javascript" }).end(SW);
   res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY" });
   res.end(url === "/home" ? home : inner(url));
 });
@@ -119,7 +122,9 @@ await p.waitForTimeout(300);
 check("clicking again collapses it", await p.evaluate(() => document.querySelector("header").offsetWidth === 72 && !localStorage.getItem("xm-nav")));
 
 // ---- side panel -------------------------------------------------------------------
-const panelState = () => p.evaluate(() => { const pe = document.querySelector("#xm-panel"); const r = pe && pe.getBoundingClientRect(); const shown = document.querySelector("#xm-panel iframe[data-xm-shown]"); return { open: document.documentElement.hasAttribute("data-xm-panel-open"), rect: r && [r.left, r.width], frames: pe ? pe.querySelectorAll("iframe").length : 0, src: shown && shown.getAttribute("src"), path: location.pathname, active: !!document.querySelector("nav a[data-xm-active]") }; });
+await p.evaluate(async () => { const reg = await navigator.serviceWorker.register("/sw.js"); await new Promise((r) => { const w = reg.installing || reg.waiting; if (!w) return r(); w.addEventListener("statechange", () => w.state === "activated" && r()); }); });
+check("a service worker answers the listed routes, as on X", await p.evaluate(async () => { const f = document.createElement("iframe"); f.src = "/notifications"; document.body.append(f); await new Promise((r) => setTimeout(r, 500)); let blocked = false; try { blocked = !f.contentDocument || f.contentDocument.body.textContent === ""; } catch { blocked = true; } f.remove(); return blocked; }));
+const panelState = () => p.evaluate(() => { const pe = document.querySelector("#xm-panel"); const r = pe && pe.getBoundingClientRect(); const shown = document.querySelector("#xm-panel iframe[data-xm-shown]"); return { open: document.documentElement.hasAttribute("data-xm-panel-open"), rect: r && [r.left, r.width], frames: pe ? pe.querySelectorAll("iframe").length : 0, src: shown && shown.dataset.xmHref, path: location.pathname, active: !!document.querySelector("nav a[data-xm-active]") }; });
 const frameOf = (href) => p.frames().find((f) => new URL(f.url()).pathname === href);
 const railLink = (t) => p.locator(`[data-testid="AppTabBar_${t}_Link"]`);
 
@@ -144,8 +149,8 @@ await railLink("Notifications").click();
 await p.waitForTimeout(300);
 f = frameOf("/notifications");
 const restored = await f.evaluate(() => ({ kept: window.__kept, y: window.scrollY }));
-const notifHits = hits.filter((u) => u === "/notifications").length;
-check("the icon brings the same page back, not a reload", restored.kept === 42 && restored.y === 700 && notifHits === 1, { restored, notifHits });
+const entryHits = hits.filter((u) => u === "/i/history").length;
+check("the icon brings the same page back, not a reload", restored.kept === 42 && restored.y === 700 && entryHits === 1, { restored, entryHits });
 await railLink("Notifications").click();
 await p.waitForTimeout(200);
 check("clicking the active icon closes it", !(await panelState()).open);
