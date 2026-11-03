@@ -62,10 +62,11 @@ if (window !== window.top) {
 
 // ---- post view -----------------------------------------------------------------------
 //
-// X's post page splits into two panes: the post on the left, and on the right its action
-// bar, the reply box and the replies. The post, action bar and reply box all live in one
-// list cell, so that cell becomes the fixed left pane, with its own scrolling, and the
-// other two pin to the right with position: fixed. Everything else stays in X's list.
+// X's post page splits into two panes. On the left the post scrolls on its own, with the
+// action bar and reply box pinned below it. On the right the sort button heads the
+// replies and scrolls away with them. The post, action bar, reply box and sort button
+// all live in one list cell, so that cell becomes the left pane and the others are placed
+// with position: fixed. Everything else stays in X's list, in the page's own scroll.
 //
 // Two things keep the list working around that. The cell counts as zero height, so the
 // replies start at the top of the right pane. And it stays mounted however far the
@@ -122,8 +123,8 @@ function startPostView() {
     return true;
   }
 
-  const MARKS = ["data-xm-focal", "data-xm-actions", "data-xm-composer"];
-  let marked = [null, null, null];
+  const MARKS = ["data-xm-focal", "data-xm-actions", "data-xm-composer", "data-xm-sort"];
+  let marked = [null, null, null, null];
 
   function setMarks(next) {
     next.forEach((el, i) => {
@@ -140,13 +141,30 @@ function startPostView() {
 
   // Back to X's plain page: its route has no post, or the post isn't laid out as expected.
   function standDown(S) {
-    setMarks([null, null, null]);
+    setMarks([null, null, null, null]);
     root.removeAttribute("data-xm-post");
     if (focalId) {
       focalId = null;
       if (S) S._scheduleCriticalUpdate();
     }
   }
+
+  // The sort button's row: the menu button after the action bar, in its own wrapper.
+  function findSortRow(article, actions) {
+    const buttons = [...article.querySelectorAll('button[aria-haspopup="menu"]')];
+    const button = buttons.find((b) => !actions.contains(b) && actions.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (!button) return null;
+    let row = button;
+    while (row.parentElement && !row.parentElement.contains(actions) && !row.parentElement.querySelector("time")) row = row.parentElement;
+    return row;
+  }
+
+  // Fixed, it has to be moved by hand to scroll away with the replies.
+  function followScroll() {
+    const row = marked[3];
+    if (row) row.style.translate = `0 ${-window.scrollY}px`;
+  }
+  addEventListener("scroll", followScroll, { passive: true });
 
   function windowClosed() {
     try {
@@ -189,10 +207,15 @@ function startPostView() {
       focalId = id;
       S._scheduleCriticalUpdate();
     }
-    setMarks([cell, actions, box]);
+    const article = cell.querySelector("article");
+    const sort = article && findSortRow(article, actions);
+    setMarks([cell, actions, box, sort]);
     if (!root.hasAttribute("data-xm-post")) root.setAttribute("data-xm-post", "");
-    setVar("--xm-actions-height", `${actions.offsetHeight}px`);
-    setVar("--xm-right-top", `${actions.offsetHeight + (box ? box.offsetHeight : 0)}px`);
+    followScroll();
+    const boxHeight = box ? box.offsetHeight : 0;
+    setVar("--xm-composer-height", `${boxHeight}px`);
+    setVar("--xm-left-bottom", `${actions.offsetHeight + boxHeight}px`);
+    setVar("--xm-right-top", `${sort ? sort.offsetHeight : 0}px`);
     setVar("--xm-canvas", getComputedStyle(document.body).backgroundColor);
 
     if (readyFor !== id && cell.offsetHeight > 0) {

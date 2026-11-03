@@ -42,9 +42,9 @@ window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
 const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();
-const root=document.createElement("div");document.querySelector('[data-testid="primaryColumn"]').append(root);
+const content=document.getElementById("content");content.prepend(document.createElement("div"));const root=document.createElement("div");content.append(root);
 const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{}};window.scroller=S;
-const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.exec(location.pathname);if(!m)return;const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML='<article data-testid="tweet" style="height:300px">post '+m[1]+'<div role="group"><button data-testid="reply">reply</button></div></article><div><div data-testid="tweetTextarea_0">box</div></div>';root.append(c);S._cells.set("tweet-"+m[1],{getElement:()=>c})};render();addEventListener("popstate",render);
+const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.exec(location.pathname);if(!m)return;const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML='<article data-testid="tweet" style="height:300px">post '+m[1]+'<div role="group"><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>';root.append(c);S._cells.set("tweet-"+m[1],{getElement:()=>c})};render();addEventListener("popstate",render);
 </script>`);
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe>`;
 
@@ -269,11 +269,14 @@ check("the next post reuses the window, without loading a page", ps.open && ps.f
 // ---- two panes, ready signal, and leaving the post inside the window ------------------
 const postFrameOf = () => p.frames().find((x) => x.name() === "xm-post");
 const loadingCleared = async () => { const t0 = Date.now(); while ((await p.evaluate(() => document.documentElement.hasAttribute("data-xm-post-loading"))) && Date.now() - t0 < 6000) await p.waitForTimeout(20); return Date.now() - t0; };
-const panes = () => postFrameOf().evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width)]; }; return { on: document.documentElement.hasAttribute("data-xm-post"), w: innerWidth, focal: r("[data-xm-focal]"), actions: r("[data-xm-actions]"), composer: r("[data-xm-composer]"), pc: r('[data-testid="primaryColumn"]'), path: location.pathname }; });
+const panes = () => postFrameOf().evaluate(() => { const r = (s) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width)]; }; return { on: document.documentElement.hasAttribute("data-xm-post"), w: innerWidth, focal: r("[data-xm-focal]"), actions: r("[data-xm-actions]"), composer: r("[data-xm-composer]"), pc: r('[data-testid="primaryColumn"]'), sort: r("[data-xm-sort]"), sortHasButton: !!document.querySelector("[data-xm-sort] #sort"), bottoms: ["[data-xm-focal]", "[data-xm-actions]", "[data-xm-composer]"].map((s) => { const e = document.querySelector(s); return e ? Math.round(e.getBoundingClientRect().bottom) : null; }), h: innerHeight, path: location.pathname }; });
 await p.waitForTimeout(300);
 let pn = await panes();
 const split = Math.round(pn.w * 0.666);
-check("the post sits on the left, actions, reply box and replies on the right", pn.on && pn.focal[0] === 0 && pn.focal[2] === split && pn.actions[0] === split && pn.actions[1] === 0 && pn.composer[0] === split && pn.pc[0] === split, pn);
+check("the post scrolls on the left with actions and reply box pinned below, replies on the right", pn.on && pn.focal[0] === 0 && pn.focal[1] === 0 && pn.focal[2] === split && pn.actions[0] === 0 && pn.composer[0] === 0 && pn.bottoms[0] === pn.actions[1] && pn.bottoms[1] === pn.composer[1] && pn.bottoms[2] === pn.h && pn.pc[0] === split, pn);
+check("the sort button heads the right pane", pn.sortHasButton && pn.sort && pn.sort[0] === split && pn.sort[1] === 0, pn.sort);
+const sortFollows = await postFrameOf().evaluate(async () => { document.querySelector('[data-testid="primaryColumn"]').style.minHeight = "3000px"; window.scrollTo(0, 200); await new Promise((r) => setTimeout(r, 200)); const top = Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top); window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 150)); document.querySelector('[data-testid="primaryColumn"]').style.minHeight = ""; return { top, back: Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top) }; });
+check("the sort button scrolls away with the replies", sortFollows.top === -200 && sortFollows.back === 0, sortFollows);
 await p.keyboard.press("Escape");
 await p.waitForTimeout(150);
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();

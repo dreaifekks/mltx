@@ -24,8 +24,8 @@ masonry that fills the window. Every other page stays as X renders it.
   clicking the icon again brings the page back as it was. The 3 most recently used
   pages stay alive; each is a full X page in an iframe, so they cost memory.
 - Clicking a post opens X's post page in a floating window: the post on the left with
-  its own scrolling, the action bar, reply box and replies on the right. Clicking
-  outside or Esc closes it. One iframe stays warm, so only the first open loads a page.
+  its own scrolling and the action bar and reply box pinned below it, the sort button
+  and replies on the right. Clicking outside or Esc closes it. One iframe stays warm, so only the first open loads a page.
   Photos, profile links, buttons and quoted posts on a card keep doing what they do.
 - `frame-rules.json` removes `X-Frame-Options` only for x.com framed by x.com.
   Pages enter the panel through `/i/history`, because X's service worker answers
