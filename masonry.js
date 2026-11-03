@@ -27,6 +27,7 @@
   const MAX_AUTO_COLS = 4;
   const MIN_WINDOW = 900; // below this the window is too narrow, leave X alone
   const SETTLE_FRAMES = 2; // a height must hold this long before a card is placed
+  const VANISH_MS = 500; // a placed card must stay empty this long to count as gone
   const KEEP_SCREENS = 0.75; // cards stay mounted this many screens around the view
   const FILL_SCREENS = 2.5; // new cards are placed ahead of the view by this many screens
   const ATTACH_TIMEOUT = 8000; // ms on /home without a list before giving up
@@ -198,10 +199,11 @@
       let y = 0;
       col.forEach((id, i) => {
         const p = b.placed.get(id);
-        if (i > 0 && !p.join) y += GAP;
+        const h = b.heights.get(id) || 0;
+        if (y > 0 && !p.join && h > 1) y += GAP;
         if (i > 0 && p.join) b.joinsNext.add(col[i - 1]);
         b.tops.set(id, y);
-        y += b.heights.get(id) || 0;
+        y += h;
       });
       return y;
     });
@@ -444,11 +446,12 @@
       const h = cell.offsetHeight;
       const seen = b.seen.get(id);
       if (seen && seen.h === h) seen.frames++;
-      else b.seen.set(id, { h, frames: 0 });
+      else b.seen.set(id, { h, frames: 0, since: performance.now() });
       if (b.placed.has(id)) {
         // A remounted card starts out short for a moment; only believe a settled height.
-        const settled = seen && seen.h === h && seen.frames >= SETTLE_FRAMES;
-        if (settled && h > 0 && b.heights.get(id) !== h) {
+        // Empty needs longer, but it's real: an ad blocker can hide a card after it's placed.
+        const settled = seen && seen.h === h && (h <= 1 ? performance.now() - seen.since >= VANISH_MS : seen.frames >= SETTLE_FRAMES);
+        if (settled && b.heights.get(id) !== h) {
           b.heights.set(id, h);
           b.dirty = true;
         }
@@ -503,9 +506,13 @@
       top += h;
     }
     if (k0 < 0) return;
-    st.top = topAtK0 + 1;
-    st.height = Math.max(1, bottomAtK1 - topAtK0 - 2);
-    if (k0 !== st.k0 || k1 !== st.k1) {
+    const nextTop = topAtK0 + 1;
+    const nextHeight = Math.max(1, bottomAtK1 - topAtK0 - 2);
+    // Same items but new coordinates also need a pass, or X keeps mounting by the old ones.
+    const shifted = Math.abs(nextTop - st.top) > 1 || Math.abs(nextHeight - st.height) > 1;
+    st.top = nextTop;
+    st.height = nextHeight;
+    if (k0 !== st.k0 || k1 !== st.k1 || shifted) {
       st.k0 = k0;
       st.k1 = k1;
       S._scheduleCriticalUpdate();
