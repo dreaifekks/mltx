@@ -550,6 +550,7 @@
 
   function setTabsOpen(open) {
     clearTimeout(tabsCloseTimer);
+    tabsCloseTimer = 0;
     if (open) root.setAttribute("data-xm-tabs-open", "");
     else root.removeAttribute("data-xm-tabs-open");
   }
@@ -606,21 +607,28 @@
     }
   }
 
-  // Hovering the icon or the list keeps it open. This listens on the document
+  // Hovering the icon or the list keeps it open, and so does anything opened from
+  // it, like the For you popup (X renders those elsewhere in the page). This listens on the document
   // because X re-renders the tabs.
+  function scheduleTabsClose() {
+    if (tabsCloseTimer || !root.hasAttribute("data-xm-tabs-open")) return;
+    tabsCloseTimer = setTimeout(() => {
+      tabsCloseTimer = 0;
+      if (!document.querySelector('[role="menu"], [role="dialog"]')) setTabsOpen(false);
+    }, TABS_CLOSE_DELAY);
+  }
+
   addEventListener(
     "pointerover",
     (e) => {
       if (e.pointerType === "touch" || !e.target.closest) return;
-      if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) {
-        setTabsOpen(true);
-      } else if (root.hasAttribute("data-xm-tabs-open")) {
-        clearTimeout(tabsCloseTimer);
-        tabsCloseTimer = setTimeout(() => setTabsOpen(false), TABS_CLOSE_DELAY);
-      }
+      if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) setTabsOpen(true);
+      else scheduleTabsClose();
     },
     { capture: true, passive: true },
   );
+  root.addEventListener("pointerleave", scheduleTabsClose, { passive: true });
+  addEventListener("blur", scheduleTabsClose);
 
   function toggleAttr(name, on) {
     if (on && !root.hasAttribute(name)) root.setAttribute(name, "");
