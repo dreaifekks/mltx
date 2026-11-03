@@ -584,6 +584,12 @@ html[data-xm-on][data-xm-flow="h"] [data-xm-board] > [data-testid="cellInnerDiv"
   scrollbar-width: thin;
 }
 
+/* Squeezed to share a column with its reply: fades out, and scrolls if you want the rest. */
+html[data-xm-on][data-xm-flow="h"] [data-xm-board] > [data-xm-squeezed] {
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(#000 calc(100% - 36px), transparent);
+}
+
 /* ---- Flow switch: above X's floating Grok and chat buttons, looking like them. ------ */
 
 #xm-flow-btn {

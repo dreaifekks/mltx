@@ -34,6 +34,7 @@
   const COLS_KEY = "xm-cols";
   const NAV_KEY = "xm-nav";
   const FLOW_KEY = "xm-flow";
+  const REPLY_SHARE = 0.6; // sideways: how much of a column a reply can keep in a squeezed conversation
   const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
   const GESTURE_GAP = 180; // ms without wheel events before the next one starts a new gesture
   const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
@@ -163,6 +164,18 @@
         after.get(anchor).push(item.id);
       }
     }
+    // Something new where a card just went: it takes that card's exact place, whichever
+    // column that was. The list's order alone can't say, since neighbours in the list
+    // can be in different columns.
+    const takeOver = (newId, oldId) => {
+      const p = newId && oldId && !byId.has(oldId) && board.placed.get(oldId);
+      if (!p) return;
+      const index = board.columns[p.col] ? board.columns[p.col].indexOf(oldId) : -1;
+      if (index >= 0) board.slots.set(newId, { col: p.col, index, join: p.join });
+    };
+    takeOver(front[0], board.order[0]);
+    for (const [id, news] of after) takeOver(news[0], board.order[known.get(id) + 1]);
+
     const next = front;
     for (const id of board.order) {
       if (!byId.has(id)) continue;
@@ -209,6 +222,7 @@
       for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
     }
     for (const id of board.skipped) if (!byId.has(id)) board.skipped.delete(id);
+    for (const id of board.slots.keys()) if (!byId.has(id)) board.slots.delete(id);
     const g = board.group;
     if (g && ((g.last && !byId.has(g.last)) || (g.member && !board.placed.has(g.member)))) board.group = null;
   }
@@ -235,6 +249,7 @@
       frontCount: [], // ...and how many cards, which is where the next one goes
       joinsNext: new Set(), // cards whose next card in the column is joined to them
       requested: new Set(), // unplaced cards the board has asked X to mount
+      slots: new Map(), // new id -> the place of the card it replaced
       stallId: null,
       stallFrames: 0,
       y: 0,
@@ -255,9 +270,28 @@
     const seq = b.order.filter((id) => b.placed.has(id));
     const columns = [];
     const bottoms = [];
-    const heightOf = (id) => Math.min(b.heights.get(id) || 0, b.colH);
+    const natural = (id) => b.heights.get(id) || 0;
 
-    const put = (unit, height) => {
+    // A conversation stays in one column whatever it takes: the reply is what was
+    // recommended, so it keeps its height up to a point and what it answers gets squeezed.
+    const fit = (unit) => {
+      const heights = unit.map((id) => Math.min(natural(id), b.colH));
+      const total = heights.reduce((a, h) => a + h, 0);
+      if (unit.length < 2 || total <= b.colH) return heights;
+      const last = heights.length - 1;
+      heights[last] = Math.min(heights[last], Math.round(b.colH * REPLY_SHARE));
+      let room = b.colH - heights[last];
+      const heads = heights.slice(0, last).map((h, i) => [h, i]).sort((x, y) => x[0] - y[0]);
+      heads.forEach(([h, i], done) => {
+        heights[i] = Math.min(h, Math.floor(room / (heads.length - done)));
+        room -= heights[i];
+      });
+      return heights;
+    };
+
+    const put = (unit) => {
+      const heights = fit(unit);
+      const height = heights.reduce((a, h) => a + h, 0);
       let col = -1;
       for (let c = Math.max(0, columns.length - FLOW_LOOKBACK); c < columns.length; c++) {
         if (bottoms[c] + (bottoms[c] > 0 && height > 1 ? GAP : 0) + height <= b.colH) {
@@ -275,10 +309,12 @@
         const p = b.placed.get(id);
         p.col = col;
         p.shownJoin = i > 0;
+        // Only when squeezed to share a column; a lone tall card is held by the stylesheet.
+        p.capH = unit.length > 1 && heights[i] < natural(id) ? heights[i] : 0;
         if (i > 0) b.joinsNext.add(unit[i - 1]);
         columns[col].push(id);
         b.tops.set(id, y);
-        y += heightOf(id);
+        y += heights[i];
       });
       bottoms[col] = y;
     };
@@ -286,12 +322,8 @@
     b.joinsNext.clear();
     for (let i = 0; i < seq.length; ) {
       let j = i + 1;
-      let height = heightOf(seq[i]);
-      while (j < seq.length && b.placed.get(seq[j]).join) height += heightOf(seq[j++]);
-      const unit = seq.slice(i, j);
-      // A conversation too tall for one column stays together as far as it can't: card by card.
-      if (height <= b.colH) put(unit, height);
-      else for (const id of unit) put([id], heightOf(id));
+      while (j < seq.length && b.placed.get(seq[j]).join) j++;
+      put(seq.slice(i, j));
       i = j;
     }
     b.columns = columns;
@@ -310,6 +342,7 @@
         const p = b.placed.get(id);
         const h = b.heights.get(id) || 0;
         p.shownJoin = p.join;
+        p.capH = 0;
         if (y > 0 && !p.join && h > 1) y += GAP;
         if (i > 0 && p.join) b.joinsNext.add(col[i - 1]);
         b.tops.set(id, y);
@@ -342,7 +375,7 @@
     if (b.group && id === b.group.last) b.group = null;
   };
 
-  function placeCard(b, id, atFront) {
+  function placeCard(b, id, atFront, after, slot) {
     const g = b.group;
     const joined = !!(g && g.col !== null);
     if (b.flow === "h") {
@@ -351,7 +384,22 @@
         g.member = id;
       }
       if (atFront) b.frontBatch.add(id); // kept for a switch back to the vertical layout
+      void after; // sideways, the order alone says where it goes
+      void slot;
       b.placed.set(id, { col: 0, join: joined, shownJoin: joined });
+      b.dirty = true;
+      return;
+    }
+    if ((slot && b.columns[slot.col]) || (after && b.placed.has(after))) {
+      const col = slot ? slot.col : b.placed.get(after).col;
+      const at = slot ? Math.min(slot.index, b.columns[col].length) : b.columns[col].indexOf(after) + 1;
+      if (g) {
+        g.col = col;
+        g.member = id;
+      }
+      const join = joined || !!(slot && slot.join);
+      b.columns[col].splice(at, 0, id);
+      b.placed.set(id, { col, join, shownJoin: join });
       b.dirty = true;
       return;
     }
@@ -398,21 +446,42 @@
     let placedAny = false;
     let frontPending = false;
     let waiting = null;
+    let prevPlaced = null;
     rebuildFront(b);
     for (let k = 0; k < list.length; k++) {
       const id = list[k].id;
-      if (b.placed.has(id) || NOT_A_CARD.test(id)) continue;
-      const atFront = k < lastPlaced;
+      if (b.placed.has(id)) {
+        prevPlaced = id;
+        continue;
+      }
+      if (NOT_A_CARD.test(id)) continue;
+      // New before the end of the list. With a card ahead of it, it belongs right after
+      // that card (X swapped a post for a "not interested" note, say). With none, it's
+      // a new post at the top.
+      const within = k < lastPlaced;
+      const slot = b.slots.get(id);
+      const after = within && !slot ? prevPlaced : null;
+      const atFront = within && !after && !slot;
       if (atFront && farFromTop(b)) {
         frontPending = true; // paused, not finished
         continue;
       }
+      if ((after || slot) && !b.requested.has(id) && !b.seen.has(id)) continue; // not near the view yet
       if (b.skipped.has(id)) {
         if ((b.heights.get(id) || 0) <= 1) {
           endGroupAt(b, id);
           continue;
         }
         b.skipped.delete(id);
+      }
+      // A conversation opens with an empty marker. It needs no measuring, and can't count
+      // on being mounted: nothing with no height is inside the window X is asked for.
+      const opens = CONVERSATION.exec(id);
+      if (opens) {
+        const last = `tweet-${opens[1]}`;
+        b.group = b.placed.has(last) || b.skipped.has(last) ? null : { last, col: null };
+        b.skipped.add(id);
+        continue;
       }
       const seen = b.seen.get(id);
       if (!seen || seen.frames < SETTLE_FRAMES) {
@@ -431,18 +500,15 @@
         endGroupAt(b, id);
         continue;
       }
-      const m = CONVERSATION.exec(id);
-      if (m) {
-        const last = `tweet-${m[1]}`;
-        b.group = b.placed.has(last) || b.skipped.has(last) ? null : { last, col: null };
-      }
       const mod = MODULE.exec(id);
       if (mod && !(b.group && b.group.module === mod[1])) b.group = { module: mod[1], col: null };
       else if (!mod && b.group && b.group.module) b.group = null;
       if (seen.h <= 1) {
         b.skipped.add(id);
       } else {
-        placeCard(b, id, atFront);
+        placeCard(b, id, atFront, after, slot);
+        b.slots.delete(id);
+        prevPlaced = id;
         placedAny = true;
       }
       endGroupAt(b, id);
@@ -578,6 +644,8 @@
     root.removeAttribute("data-xm-ready");
     for (const cell of el.children) {
       cell.style.translate = "";
+      cell.style.maxHeight = "";
+      cell.removeAttribute("data-xm-squeezed");
       delete cell.__xm;
       cell.removeAttribute("data-xm-placed");
       cell.removeAttribute("data-xm-join");
@@ -599,7 +667,8 @@
     for (const [id, comp] of S._cells) {
       const cell = comp && comp.getElement && comp.getElement();
       if (!cell) continue;
-      const h = cell.offsetHeight;
+      // Sideways a card can be held shorter than it is; the layout wants its real height.
+      const h = b.flow === "h" ? Math.max(cell.scrollHeight, cell.offsetHeight) : cell.offsetHeight;
       const seen = b.seen.get(id);
       if (seen && seen.h === h) seen.frames++;
       else b.seen.set(id, { h, frames: 0 });
@@ -632,6 +701,7 @@
     let wantFront = farFromTop(b) ? 0 : cols * 3; // new posts at the top don't depend on column depth
     const lastPlaced = lastPlacedIndex(b, list);
     b.requested.clear();
+    let prevKept = false;
     let k0 = -1;
     let k1 = -1;
     let top = 0;
@@ -650,7 +720,9 @@
           keep = t + (b.heights.get(id) || 0) >= y0 && t <= y1;
         }
       } else if (!NOT_A_CARD.test(id) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
-        if (k < lastPlaced) {
+        if (b.slots.has(id) || (k < lastPlaced && prevKept)) {
+          keep = true; // new in the middle, right after something on view
+        } else if (k < lastPlaced) {
           if (wantFront > 0) {
             keep = true;
             wantFront--;
@@ -661,6 +733,7 @@
         }
         if (keep) b.requested.add(id);
       }
+      if (b.placed.has(id) || keep) prevKept = keep;
       if (keep) {
         if (k0 < 0) {
           k0 = k;
@@ -701,6 +774,11 @@
       const v = `${PAD + p.col * (colw + GAP)}px ${PAD + b.tops.get(id)}px`;
       if (cell.__xm !== v) cell.style.translate = cell.__xm = v;
       if (!cell.hasAttribute("data-xm-placed")) cell.setAttribute("data-xm-placed", "");
+      const cap = p.capH ? `${p.capH}px` : "";
+      if (cell.style.maxHeight !== cap) {
+        cell.style.maxHeight = cap;
+        cell.toggleAttribute("data-xm-squeezed", !!cap);
+      }
       const join = [p.shownJoin && "prev", b.joinsNext.has(id) && "next"].filter(Boolean).join(" ");
       if ((cell.getAttribute("data-xm-join") || "") !== join) {
         if (join) cell.setAttribute("data-xm-join", join);

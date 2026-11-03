@@ -34,7 +34,7 @@ const home = page(`<div id="app">${rail}<main><div><div><div data-testid="primar
 <script>
 class Rect{constructor(t,h){this._t=t;this._h=h}getTop(){return this._t}getBottom(){return this._t+this._h}getHeight(){return this._h}translateBy(d){return new Rect(this._t+d,this._h)}}
 const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollTo(x,y)},scrollBy(){},scrollY(){return window.scrollY}};
-class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:Array.from({length:60},(_,i)=>({id:'tweet-'+i})),minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>120+(+i.id.slice(6)*37)%160}
+class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
 u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article data-testid="tweet" style="height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
@@ -90,8 +90,12 @@ const early = await p.evaluate(() => {
 check("layout attribute is on before the head finishes parsing", early.onAtHead === true);
 check("before the list exists, nothing of X's single column shows", !early.list && early.composer === "none" && early.bar === "hidden" && early.barH === 0 && early.side === "none" && early.region === "hidden" && early.rail === 72, early);
 
+const t0Place = Date.now();
 await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+const firstPlacedMs = Date.now() - t0Place;
 await p.waitForTimeout(400);
+const firstConv = await p.evaluate(() => { const c = (id) => window.scroller._cells.get(id)?.getElement(); const a = c("tweet-1000"), b = c("tweet-1001"); return { a: a && a.style.translate, b: b && b.style.translate, joinA: a && a.getAttribute("data-xm-join"), joinB: b && b.getAttribute("data-xm-join") }; });
+check("a conversation at the very top is one card, without a wait", firstPlacedMs < 1500 && firstConv.joinA === "next" && firstConv.joinB === "prev" && firstConv.a.split(" ")[0] === firstConv.b.split(" ")[0], { firstPlacedMs, firstConv });
 check("board is ready and the region shows", await p.evaluate(() => document.documentElement.hasAttribute("data-xm-ready") && getComputedStyle(document.querySelector('section[role="region"]')).visibility === "visible"));
 const nCols = await p.evaluate(() => new Set([...document.querySelectorAll("[data-xm-placed]")].map((c) => c.style.translate.split(" ")[0])).size);
 check("cards are in columns", nCols === 4, nCols);
@@ -242,6 +246,40 @@ check("clicking the tab icon swaps the panel for the list", await p.evaluate(() 
 await p.mouse.move(1000, 500);
 await p.waitForTimeout(400);
 
+// ---- X swaps a post for a small note ("not interested") ---------------------------------
+const swap = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  window.scrollTo(0, 0); await sleep(300);
+  const victim = "tweet-1";
+  const cell = S._cells.get(victim).getElement();
+  const before = cell.style.translate;
+  const col = before.split(" ")[0];
+  const list = S.props.list.map((i) => (i.id === victim ? { id: "feedback-1" } : i));
+  S.props = { ...S.props, list };
+  S._scheduleCriticalUpdate(); await sleep(700);
+  const note = S._cells.get("feedback-1")?.getElement();
+  const out = { before, note: note && note.style.translate, placed: !!note && note.hasAttribute("data-xm-placed") };
+  return { ...out, sameSlot: !!note && note.style.translate.split(" ")[0] === col && Math.abs(parseFloat(note.style.translate.split(" ")[1]) - parseFloat(before.split(" ")[1])) < 1 };
+});
+check("a post swapped for a small note keeps its place, and the column closes up", swap.placed && swap.sameSlot, swap);
+const swapDeep = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const target = Math.min(1500, document.documentElement.scrollHeight - innerHeight - 50);
+  window.scrollTo(0, target); await sleep(900);
+  const vis = [...S._cells.entries()].map(([id, c]) => [id, c.getElement()]).filter(([id, e]) => id.startsWith("tweet-") && e.hasAttribute("data-xm-placed") && e.getBoundingClientRect().top > 100 && e.getBoundingClientRect().bottom < innerHeight);
+  if (!vis.length) return { before: "", note: "", placed: false, debug: { y: window.scrollY, target, doc: document.documentElement.scrollHeight, cells: S._cells.size, ids: [...S._cells.keys()].slice(0, 6), placed: document.querySelectorAll("[data-xm-placed]").length, rects: [...S._cells.values()].slice(0, 4).map((c) => { const e = c.getElement(); const r = e.getBoundingClientRect(); return [e.hasAttribute("data-xm-placed"), Math.round(r.top), Math.round(r.height), e.style.translate]; }), list: S.props.list.length } };
+  const [victim, cell] = vis[1] || vis[0];
+  const before = cell.style.translate;
+  S.props = { ...S.props, list: S.props.list.map((i) => (i.id === victim ? { id: "feedback-2" } : i)) };
+  S._scheduleCriticalUpdate(); await sleep(800);
+  const note = S._cells.get("feedback-2")?.getElement();
+  window.scrollTo(0, 0); await sleep(300);
+  return { before, note: note && note.style.translate, placed: !!note && note.hasAttribute("data-xm-placed") };
+});
+check("further down the feed too", swapDeep.placed && !!swapDeep.note && swapDeep.note.split(" ")[0] === swapDeep.before.split(" ")[0] && Math.abs(parseFloat(swapDeep.note.split(" ")[1]) - parseFloat(swapDeep.before.split(" ")[1])) < 1, swapDeep);
+
 // ---- post window ---------------------------------------------------------------------
 const postState = () => p.evaluate(() => { const e = document.documentElement; const pe = document.querySelector("#xm-post"); const r = pe && pe.getBoundingClientRect(); const sc = document.querySelector("#xm-post-scrim"); const f = pe && pe.querySelector("iframe"); return { open: e.hasAttribute("data-xm-post-open"), visible: !!pe && getComputedStyle(pe).visibility === "visible", rect: r && [r.left, r.top, r.width, r.height].map(Math.round), blur: sc ? getComputedStyle(sc).backdropFilter : null, path: location.pathname, y: window.scrollY, frameName: f && f.name, frameHref: f && f.dataset.xmHref }; });
 const panelBlur = await p.evaluate(() => getComputedStyle(document.querySelector("#xm-panel-scrim")).backdropFilter);
@@ -364,7 +402,7 @@ await p.waitForTimeout(700);
 const heldAfter = await p.evaluate(() => { const e = document.getElementById("held"); return e ? Math.round(e.getBoundingClientRect().left) : null; });
 check("a card growing earlier on leaves the first card in view where it is", held.hadEarlier && heldAfter !== null && Math.abs(heldAfter - held.left) <= 2, { held, heldAfter });
 
-// a conversation split across columns, then its head dropped
+// a conversation too tall for a column, then its head dropped
 const splitTest = await p.evaluate(async () => {
   const S = window.scroller; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const orig = S._h; S._h = (i) => (i.id.startsWith("impressionPlaceholder") ? 0 : i.id === "tweet-901" || i.id === "tweet-902" ? 700 : orig(i));
@@ -378,8 +416,11 @@ const splitTest = await p.evaluate(async () => {
   const cell = () => { const c = S._cells.get("tweet-902"); return c && c.getElement(); };
   const pos = (e) => e && e.style.translate.split(" ").map(parseFloat);
   const a = S._cells.get("tweet-901")?.getElement(), c2 = cell();
-  const placedBoth = !!(c2 && c2.hasAttribute("data-xm-placed")); // the head may have scrolled out of mounting
-  const splitOff = placedBoth && !c2.getAttribute("data-xm-join") && (!a || pos(a)[0] !== pos(c2)[0]);
+  const placedBoth = !!(a && c2 && a.hasAttribute("data-xm-placed") && c2.hasAttribute("data-xm-placed"));
+  const ch = b.clientHeight;
+  const rect = (e) => e.getBoundingClientRect();
+  await sleep(300);
+  const together = placedBoth && pos(a)[0] === pos(c2)[0] && c2.getAttribute("data-xm-join") === "prev" && Math.abs(rect(a).bottom - rect(c2).top) < 1 && rect(c2).bottom <= ch + 1 && a.hasAttribute("data-xm-squeezed") && rect(c2).height >= rect(a).height;
   S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== "tweet-901" && !i.id.startsWith("impressionPlaceholder")) };
   // Short enough to share a column with what's before it, where a stale join would show.
   S._h = (i) => (i.id === "tweet-902" ? 60 : orig(i));
@@ -391,9 +432,10 @@ const splitTest = await p.evaluate(async () => {
   S._h = orig;
   S._scheduleCriticalUpdate();
   await sleep(300);
-  return { placedBoth, splitOff, joinAfter: after ? after.getAttribute("data-xm-join") : "unmounted" };
+  return { placedBoth, together, joinAfter: after ? after.getAttribute("data-xm-join") : "unmounted" };
 });
-check("a split conversation losing its head doesn't glue the reply to another card", splitTest.placedBoth && splitTest.splitOff && !splitTest.joinAfter, splitTest);
+check("a conversation too tall for a column is squeezed, not split, with the reply kept whole", splitTest.placedBoth && splitTest.together, splitTest);
+check("a conversation losing its head doesn't glue the reply to another card", !splitTest.joinAfter, splitTest);
 
 // the post window works from the sideways flow, and leaves the list where it was
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(1).click();
