@@ -339,10 +339,10 @@ await p.waitForTimeout(400);
 fl = await flow();
 check("scrolling on mounts and unmounts, and keeps loading the width", fl.sl > 3000 && fl.cells < fl.list && fl.cards.some((c) => c.x >= fl.sl - 600), { sl: fl.sl, cells: fl.cells, list: fl.list });
 // the post window works from the sideways flow, and leaves the list where it was
-const slForPost = (await flow()).sl;
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(1).click();
 await p.waitForTimeout(350);
 const postInFlow = await postState();
+const slForPost = (await flow()).sl; // the click itself may scroll the card into view
 await p.mouse.move(1500, 880);
 await p.mouse.wheel(0, 500);
 await p.waitForTimeout(250);
