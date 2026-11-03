@@ -24,7 +24,12 @@ const targets = {
       },
     },
   },
-  safari: manifest,
+  safari: {
+    ...manifest,
+    // Content scripts in the page's own world need 18, and initiatorDomains in the frame
+    // rule needs 18.4.
+    browser_specific_settings: { safari: { strict_min_version: "18.4" } },
+  },
 };
 
 rmSync(join(root, "dist"), { recursive: true, force: true });

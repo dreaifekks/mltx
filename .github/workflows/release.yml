@@ -120,7 +120,7 @@ jobs:
 
   publish:
     name: Publish release
-    if: github.ref_type == 'tag'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: [build-chrome-firefox, build-safari]
     runs-on: ubuntu-latest
     timeout-minutes: 5

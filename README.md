@@ -23,6 +23,9 @@ artifacts. Without Apple signing secrets the Safari dmg is ad-hoc signed, so Saf
 "Allow Unsigned Extensions" turned on; set `MACOS_SIGNING_P12`, `MACOS_SIGNING_PASSWORD`
 and `APPLE_API_*` to sign and notarize.
 
+Needs Chrome, Firefox 128 or Safari 18.4 and up. The Firefox zip isn't signed: load it from
+`about:debugging`, or submit it to AMO to get an installable package.
+
 ## Use
 
 - Column count follows the window: as many as fit at 360px or wider, at most 4.
