@@ -799,12 +799,9 @@
       flowBtn.setAttribute("aria-label", label);
       flowBtn.innerHTML = flowSideways ? ICON_FLOW_V : ICON_FLOW_H;
     }
-    const near = [...document.querySelectorAll('[data-testid="GrokDrawer"] button, [data-testid="chat-drawer-root"] button')].filter((e) => e.offsetWidth > 0);
-    if (!near.length) {
-      root.style.removeProperty("--xm-flow-top");
-      root.style.removeProperty("--xm-flow-left");
-      return;
-    }
+    // Only the square launchers: with a drawer open its buttons mustn't carry this along.
+    const near = [...document.querySelectorAll('[data-testid="GrokDrawer"] button, [data-testid="chat-drawer-root"] button')].filter((e) => e.offsetWidth >= 40 && e.offsetWidth <= 80 && Math.abs(e.offsetWidth - e.offsetHeight) <= 2 && getComputedStyle(e).borderRadius === "16px");
+    if (!near.length) return;
     const top = near.reduce((a, e) => (e.getBoundingClientRect().top < a.getBoundingClientRect().top ? e : a));
     const r = top.getBoundingClientRect();
     setVar("--xm-flow-size", Math.round(r.width) + "px");
