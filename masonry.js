@@ -79,6 +79,7 @@
   let navOpen = localStorage.getItem(NAV_KEY) === "open";
   let flowSideways = localStorage.getItem(FLOW_KEY) === "h";
   let flowBtn = null;
+  let flowPlacedAt = 0;
   let gesture = { at: 0, kind: null };
   let tabsBtn = null;
   let navBtn = null;
@@ -168,22 +169,31 @@
       next.push(id);
       if (after.has(id)) next.push(...after.get(id));
     }
+    const before = board.order;
     board.order = next;
     const same = next.length === list.length && next.every((id, i) => list[i].id === id);
     board.lastIn = list;
     board.lastOut = same ? list : next.map((id) => byId.get(id));
-    forgetDropped(board, byId);
+    forgetDropped(board, byId, before);
     return board.lastOut;
   }
 
-  function forgetDropped(board, byId) {
+  function forgetDropped(board, byId, order) {
+    // A reply whose conversation head was dropped mustn't glue onto whatever precedes it
+    // now. In reading order, since a split conversation can be across columns.
+    let headAlive = true;
+    for (const id of order) {
+      const p = board.placed.get(id);
+      if (!p) continue;
+      if (!p.join) headAlive = byId.has(id);
+      else if (!headAlive && byId.has(id)) {
+        p.join = false;
+        headAlive = true;
+      }
+    }
     for (const col of board.columns) {
       for (let i = col.length - 1; i >= 0; i--) {
         if (byId.has(col[i])) continue;
-        // The card after a dropped conversation head must not glue onto an unrelated card.
-        const gone = board.placed.get(col[i]);
-        const next = board.placed.get(col[i + 1]);
-        if (next && next.join && !gone.join) next.join = false;
         board.placed.delete(col[i]);
         col.splice(i, 1);
         board.dirty = true;
@@ -230,6 +240,7 @@
       y: 0,
       x: 0, // scroll position in the sideways flow
       flow: "v",
+      listTop: 0, // where the list starts in the page, in the vertical layout
       colH: 0,
       totalW: 0,
       restoreFrames: 0,
@@ -339,6 +350,7 @@
         g.col = 0;
         g.member = id;
       }
+      if (atFront) b.frontBatch.add(id); // kept for a switch back to the vertical layout
       b.placed.set(id, { col: 0, join: joined, shownJoin: joined });
       b.dirty = true;
       return;
@@ -478,8 +490,11 @@
     return null;
   }
 
+  // From the position this board saved: on a tab left in the other layout, what's on
+  // screen right now says nothing about where it was.
   function changeFlow(c, b, sideways) {
-    const anchor = b.flow === "h" ? anchorSideways(b, c.el.scrollLeft) : anchorAt(b, -c.el.getBoundingClientRect().top - PAD);
+    const anchor = b.flow === "h" ? anchorSideways(b, b.x) : anchorAt(b, b.y - b.listTop - PAD);
+    gesture.kind = null;
     b.flow = sideways ? "h" : "v";
     if (!sideways) b.columns = []; // dealt again below
     b.dirty = true;
@@ -743,7 +758,11 @@
       });
     }
     if (tabsBtn.parentElement !== header) header.append(tabsBtn, navBtn);
-    placeFlowButton(header);
+    const at = performance.now();
+    if (at - flowPlacedAt > 500 || !flowBtn || flowBtn.parentElement !== header) {
+      flowPlacedAt = at;
+      placeFlowButton(header);
+    }
     // React may have rebuilt the rail under an open panel.
     if (panelHref && !(panelLink && panelLink.isConnected)) {
       markLink(header.querySelector(`nav a[href="${CSS.escape(panelHref)}"]`));
@@ -789,6 +808,7 @@
         flowSideways = !flowSideways;
         if (flowSideways) localStorage.setItem(FLOW_KEY, "h");
         else localStorage.removeItem(FLOW_KEY);
+        flowPlacedAt = 0;
         quietFrames = 0;
       });
     }
@@ -994,6 +1014,7 @@
   }
 
   function closePost() {
+    gesture.kind = null;
     postLoaded();
     if (postFrame) pauseMedia(postFrame);
     root.removeAttribute("data-xm-post-open");
@@ -1135,8 +1156,9 @@
       c.board = boardFor(key);
       c.board.restoreFrames = c.board.y > 0 || c.board.x > 0 ? 40 : 0;
       c.st.k0 = c.st.k1 = -1;
+      gesture.kind = null;
       if (!c.board.y) scrollTo(0, 0);
-      c.el.scrollLeft = c.board.x;
+      c.el.scrollLeft = c.board.flow === "h" ? c.board.x : 0;
     }
     const b = c.board;
     if (b.lastOut !== c.S.props.list) c.S.props.list = arrange(b, c.S.props.list);
@@ -1182,7 +1204,16 @@
     measure(c);
     const placedAny = placeReady(c);
     const moved = placedAny || b.dirty;
-    if (b.dirty) relayout(b);
+    if (b.dirty) {
+      // Sideways, a height change can send cards to other columns. Whatever else moves,
+      // the first card in view stays where it is on screen.
+      const stride = colw + GAP;
+      const firstCol = sideways ? Math.floor(c.el.scrollLeft / stride) : -1;
+      const held = sideways && !b.anchor && b.columns[firstCol] ? b.columns[firstCol][0] : null;
+      relayout(b);
+      const now_ = held && b.placed.get(held);
+      if (now_ && now_.col !== firstCol) c.el.scrollLeft += (now_.col - firstCol) * stride;
+    }
     setVar("--xm-total", b.total + "px");
     if (sideways) setVar("--xm-total-w", b.totalW + "px");
 
@@ -1204,8 +1235,12 @@
       else if (b.y > 0) scrollTo(0, b.y);
     }
     if (!OVERLAY_ROUTE.test(location.pathname) && !b.restoreFrames) {
-      if (sideways) b.x = c.el.scrollLeft;
-      else b.y = scrollY;
+      if (sideways) {
+        b.x = c.el.scrollLeft;
+      } else {
+        b.y = scrollY;
+        b.listTop = rect.top + scrollY;
+      }
     }
 
     if (sideways) {

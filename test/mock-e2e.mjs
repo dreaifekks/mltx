@@ -338,6 +338,42 @@ for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, 1200); await p.waitForTimeo
 await p.waitForTimeout(400);
 fl = await flow();
 check("scrolling on mounts and unmounts, and keeps loading the width", fl.sl > 3000 && fl.cells < fl.list && fl.cards.some((c) => c.x >= fl.sl - 600), { sl: fl.sl, cells: fl.cells, list: fl.list });
+// a height change sending cards to other columns leaves the first card in view in place
+await p.evaluate(() => { const b = document.querySelector("[data-xm-board]"); b.scrollLeft = Math.round(b.scrollLeft / 379) * 379; });
+await p.waitForTimeout(400);
+const held = await p.evaluate(() => { const b = document.querySelector("[data-xm-board]"); const cards = [...document.querySelectorAll("[data-xm-placed]")]; const view = b.getBoundingClientRect().left + 12; const first = cards.filter((c) => Math.abs(c.getBoundingClientRect().left - view) < 3).sort((x, y) => x.getBoundingClientRect().top - y.getBoundingClientRect().top)[0]; const earlier = cards.filter((c) => c.getBoundingClientRect().right < view).sort((x, y) => y.getBoundingClientRect().left - x.getBoundingClientRect().left || x.getBoundingClientRect().top - y.getBoundingClientRect().top)[0]; first.id = "held"; earlier.querySelector("article").style.height = "860px"; return { left: Math.round(first.getBoundingClientRect().left), hadEarlier: !!earlier }; });
+await p.waitForTimeout(700);
+const heldAfter = await p.evaluate(() => { const e = document.getElementById("held"); return e ? Math.round(e.getBoundingClientRect().left) : null; });
+check("a card growing earlier on leaves the first card in view where it is", held.hadEarlier && heldAfter !== null && Math.abs(heldAfter - held.left) <= 2, { held, heldAfter });
+
+// a conversation split across columns, then its head dropped
+const splitTest = await p.evaluate(async () => {
+  const S = window.scroller; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const orig = S._h; S._h = (i) => (i.id === "tweet-901" || i.id === "tweet-902" ? 700 : orig(i));
+  const mk = (id) => ({ id });
+  const conv = [mk("impressionPlaceholder-home-conversation-902"), mk("tweet-901"), mk("tweet-902")];
+  const list = S.props.list;
+  S.props = { ...S.props, list: [...list, ...conv] };
+  S._scheduleCriticalUpdate();
+  const b = document.querySelector("[data-xm-board]");
+  for (let i = 0; i < 40; i++) { const c = S._cells.get("tweet-902"); if (c && c.getElement().hasAttribute("data-xm-placed")) break; b.scrollLeft = b.scrollWidth; await sleep(120); }
+  const cell = () => { const c = S._cells.get("tweet-902"); return c && c.getElement(); };
+  const pos = (e) => e && e.style.translate.split(" ").map(parseFloat);
+  const a = S._cells.get("tweet-901")?.getElement(), c2 = cell();
+  const placedBoth = !!(c2 && c2.hasAttribute("data-xm-placed")); // the head may have scrolled out of mounting
+  const splitOff = placedBoth && !c2.getAttribute("data-xm-join") && (!a || pos(a)[0] !== pos(c2)[0]);
+  S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== "tweet-901" && !i.id.startsWith("impressionPlaceholder")) };
+  S._scheduleCriticalUpdate();
+  await sleep(500);
+  const after = cell();
+  S.props = { ...S.props, list: S.props.list.filter((i) => i.id !== "tweet-902") };
+  S._h = orig;
+  S._scheduleCriticalUpdate();
+  await sleep(300);
+  return { placedBoth, splitOff, joinAfter: after ? after.getAttribute("data-xm-join") : "unmounted" };
+});
+check("a split conversation losing its head doesn't glue the reply to another card", splitTest.placedBoth && splitTest.splitOff && !splitTest.joinAfter, splitTest);
+
 // the post window works from the sideways flow, and leaves the list where it was
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(1).click();
 await p.waitForTimeout(350);
@@ -367,6 +403,21 @@ await p.waitForTimeout(600);
 fl = await flow();
 const backXs = new Set(fl.cards.map((c) => c.x));
 check("switching back gives the vertical masonry and clears the setting", fl.attr === null && fl.pos !== "fixed" && backXs.size === 4 && fl.stored === null && fl.sl === 0 && fl.docY > 0, { attr: fl.attr, pos: fl.pos, cols: backXs.size, stored: fl.stored, docY: fl.docY });
+// a tab left in the other layout keeps its place when it comes back
+const tabTest = await p.evaluate(async () => {
+  const S = window.scroller; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  window.scrollTo(0, 2600); await sleep(500);
+  const key = S.props.cacheKey;
+  const firstSeen = () => { const v = [...document.querySelectorAll("[data-xm-placed]")].map((c) => ({ c, r: c.getBoundingClientRect() })).filter((o) => o.r.bottom > 0 && o.r.top < innerHeight && o.r.left < innerWidth && o.r.right > 72); return v.length; };
+  S.props = { ...S.props, cacheKey: "other" }; await sleep(300);
+  document.querySelector("#xm-flow-btn").click(); await sleep(400);
+  S.props = { ...S.props, cacheKey: key }; await sleep(700);
+  const b = document.querySelector("[data-xm-board]");
+  const out = { flow: document.documentElement.getAttribute("data-xm-flow"), sl: Math.round(b.scrollLeft), seen: firstSeen() };
+  document.querySelector("#xm-flow-btn").click(); await sleep(500);
+  return out;
+});
+check("a tab left vertical and reopened sideways stays near where it was", tabTest.flow === "h" && tabTest.sl > 500 && tabTest.seen > 0, tabTest);
 await p.evaluate(() => window.scrollTo(0, 0));
 await p.waitForTimeout(300);
 
