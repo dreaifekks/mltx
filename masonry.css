@@ -1,0 +1,167 @@
+/* Everything is gated on html[data-xm-on], which masonry.js only sets on the
+   home timeline. Removing the attribute gives back X's own layout untouched. */
+
+html[data-xm-on] {
+  overflow-anchor: none;
+}
+
+/* ---- Right column: gone. Primary column: as wide as the window allows. ---- */
+
+html[data-xm-on] [data-testid="sidebarColumn"] {
+  display: none !important;
+}
+
+html[data-xm-on] main :is([data-testid="primaryColumn"], :has([data-testid="primaryColumn"])) {
+  width: 100% !important;
+  max-width: none !important;
+  flex-grow: 1 !important;
+}
+
+/* X centres a 600px box inside the primary column; every wrapper down to the
+   board has to give way or the board stays centred and runs off the right edge. */
+html[data-xm-on] [data-testid="primaryColumn"] :has([data-xm-board]),
+html[data-xm-on] [data-xm-board] {
+  width: 100% !important;
+  max-width: none !important;
+  align-self: stretch !important;
+}
+
+html[data-xm-on] [data-testid="primaryColumn"] {
+  border-left-width: 0 !important;
+  border-right-width: 0 !important;
+}
+
+/* ---- Left nav: an icon rail. ---------------------------------------------- */
+
+html[data-xm-on] header[role="banner"] {
+  flex: 0 0 72px !important;
+  width: 72px !important;
+  min-width: 72px !important;
+  align-items: flex-start !important;
+  box-sizing: border-box !important;
+  border-right: 1px solid var(--xm-stroke, rgb(47 51 54)) !important;
+}
+
+html[data-xm-on] header[role="banner"] > div {
+  width: 72px !important;
+  margin-left: 0 !important;
+}
+
+html[data-xm-on] header[role="banner"] > div > div {
+  width: 71px !important;
+}
+
+html[data-xm-on] header[role="banner"] > div > div > div {
+  width: 71px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  align-items: center !important;
+}
+
+/* X's inner wrappers keep 259px widths that would sit invisibly over column 0. */
+html[data-xm-on] header[role="banner"] :is(div, nav) {
+  max-width: 71px !important;
+}
+
+html[data-xm-on] header[role="banner"] nav {
+  align-items: center !important;
+}
+
+html[data-xm-on] header[role="banner"] nav :is(a, button) {
+  width: fit-content !important;
+}
+
+/* The label next to each nav icon. */
+html[data-xm-on] header[role="banner"] nav :is(a, button) > div > div:nth-child(2) {
+  display: none !important;
+}
+
+/* Account button: avatar only. */
+html[data-xm-on] [data-testid="SideNav_AccountSwitcher_Button"] {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  justify-content: center !important;
+}
+
+html[data-xm-on] [data-testid="SideNav_AccountSwitcher_Button"] > div:nth-child(n + 2) {
+  display: none !important;
+}
+
+/* Post button: a round "+". */
+html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] {
+  width: 48px !important;
+  min-width: 48px !important;
+  padding: 0 !important;
+}
+
+html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] span {
+  font-size: 0 !important;
+}
+
+html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] > div {
+  position: relative;
+}
+
+html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] > div::after {
+  content: "+";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  line-height: 1;
+  color: inherit;
+}
+
+/* ---- The board. ----------------------------------------------------------- */
+
+/* X sets minHeight to the single-column total; the board is much shorter. */
+html[data-xm-on] [data-xm-board] {
+  min-height: var(--xm-total, 0px) !important;
+  height: var(--xm-total, 0px) !important;
+}
+
+/* Cards sit at absolute board coordinates set through `translate`. X's own
+   transform and top are switched off so its offset changes can't move a card. */
+html[data-xm-on] [data-xm-board] > [data-testid="cellInnerDiv"] {
+  width: var(--xm-colw) !important;
+  top: 0 !important;
+  left: 0 !important;
+  transform: none !important;
+  transition: none !important;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--xm-stroke, rgb(47 51 54));
+  will-change: translate;
+}
+
+/* Not placed yet (or being measured): keep the layout box, show nothing. */
+html[data-xm-on] [data-xm-board] > [data-testid="cellInnerDiv"]:not([data-xm-placed]) {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Replies in one conversation read as a single card. */
+html[data-xm-on] [data-xm-board] > [data-xm-join~="prev"] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+html[data-xm-on] [data-xm-board] > [data-xm-join~="next"] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* X's divider between rows would be a stray line along the card's bottom edge. */
+html[data-xm-on] [data-xm-board] > [data-testid="cellInnerDiv"] > div {
+  border-bottom-width: 0 !important;
+}
+
+html[data-xm-on] [data-xm-board] article {
+  border-bottom-width: 0 !important;
+}
