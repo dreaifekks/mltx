@@ -13,6 +13,10 @@ masonry that fills the window. Every other page stays as X renders it.
   Below a 900px window, X's own layout stays.
 - `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. The choice is
   stored in `localStorage` under `xm-cols`.
+- The button above X's Grok and chat buttons switches to a sideways flow: screen-high
+  columns that scroll left and right. A sideways swipe stays native, a vertical gesture
+  or mouse wheel anywhere in the window moves the list, and a card taller than its
+  column scrolls inside itself. The choice is stored under `xm-flow`.
 - Timelines (For you, Following, pinned lists): hover the list icon under the X logo.
 - Hover the X logo and click to expand or collapse the sidebar. X only draws labels
   in windows about 1265px or wider, so narrower ones keep the plain logo.

@@ -20,7 +20,7 @@ execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyo
 const NAV = [["/home", "Home", "主页"], ["/notifications", "Notifications", "通知"], ["/i/chat", "Chat", "聊天"], ["/i/bookmarks", "Bookmarks", "书签"], ["/inkks", "Profile", "资料"]];
 // Like X's: these navigations get a cached page saying DENY, without reaching the network.
 const SW = `self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",(e)=>e.waitUntil(clients.claim()));self.addEventListener("fetch",(e)=>{const u=new URL(e.request.url);if(e.request.mode==="navigate"&&["/notifications","/inkks"].includes(u.pathname)&&!u.search.includes("no-sw"))e.respondWith(new Response("<h1>shell</h1>",{headers:{"content-type":"text/html","x-frame-options":"DENY"}}))});`;
-const page = (body) => `<!doctype html><html lang="zh"><head><style>body{margin:0;background:#000;color:#e7e9ea;font-family:sans-serif}#bar{position:sticky;top:0;z-index:3;will-change:transform;height:53px}#blur{backdrop-filter:blur(12px)}[data-testid=primaryColumn]{width:600px;border-left:1px solid rgb(47,51,54)}main{display:flex;flex:1}#app{display:flex}header{flex:1;display:flex;justify-content:flex-end}header>div{width:275px}header>div>div{position:fixed;width:275px;height:100vh}nav a{display:block;color:inherit}nav a>div{display:flex;padding:12px}</style>
+const page = (body) => `<!doctype html><html lang="zh"><head><style>body{margin:0;background:#000;color:#e7e9ea;font-family:sans-serif}#bar{position:sticky;top:0;z-index:3;will-change:transform;height:53px}#blur{backdrop-filter:blur(12px)}[data-testid=primaryColumn]{width:600px;border-left:1px solid rgb(47,51,54)}main{display:flex;flex:1}#app{display:flex}header{flex:1;display:flex;justify-content:flex-end;position:relative;z-index:3}header>div{width:275px}header>div>div{position:fixed;width:275px;height:100vh}nav a{display:block;color:inherit}nav a>div{display:flex;padding:12px}</style>
 <script>window.__onAtHead=document.documentElement.hasAttribute('data-xm-on');</script></head><body>${body}</body></html>`;
 const rail = `<header role="banner"><div><div><div><h1 style="margin:0;width:52px;height:52px"><a href="/home" aria-label="X">X</a></h1><nav>${NAV.map(([h, id, t]) => `<a href="${h}" data-testid="AppTabBar_${id}_Link"><div><div>●</div><div dir="ltr"><span>${t}</span></div></div></a>`).join("")}</nav><a href="/compose/post" data-testid="SideNav_NewTweet_Button">+</a></div></div></div></header>`;
 const tabs = ["为你推荐", "正在关注", "科技", "优质蓝V原创博主"];
@@ -29,6 +29,8 @@ const home = page(`<div id="app">${rail}<main><div><div><div data-testid="primar
 <div></div><div id="composer"><div data-testid="tweetTextarea_0">有什么新鲜事</div></div><div style="height:1px"></div>
 <div id="tl"><section role="region"><div><div id="root" style="position:relative"></div></div></section></div>
 </div></div></div></div><div data-testid="sidebarColumn">right</div></main></div>
+<div data-testid="GrokDrawer" style="position:fixed;right:20px;bottom:87px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">G</button></div>
+<div data-testid="chat-drawer-root" style="position:fixed;right:20px;bottom:20px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">C</button></div>
 <script>
 class Rect{constructor(t,h){this._t=t;this._h=h}getTop(){return this._t}getBottom(){return this._t+this._h}getHeight(){return this._h}translateBy(d){return new Rect(this._t+d,this._h)}}
 const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollTo(x,y)},scrollBy(){},scrollY(){return window.scrollY}};
@@ -299,6 +301,62 @@ for (const extra of ctx.pages().slice(newTabsBefore)) await extra.close();
 await p.locator('[data-xm-placed] [data-testid="like"]').first().click();
 await p.waitForTimeout(150);
 check("buttons on a card don't open it", !(await postState()).open);
+
+// ---- sideways flow --------------------------------------------------------------------
+const flowBtnBox = await p.locator("#xm-flow-btn").boundingBox();
+const grokBox = await p.locator('[data-testid="GrokDrawer"] button').boundingBox();
+const flowStyle = await p.evaluate(() => { const c = getComputedStyle(document.querySelector("#xm-flow-btn")); return { bg: c.backgroundColor, r: c.borderRadius, title: document.querySelector("#xm-flow-btn").title }; });
+check("the switch sits above Grok's button, same size and style", flowBtnBox.x === grokBox.x && flowBtnBox.width === grokBox.width && Math.round(flowBtnBox.y + flowBtnBox.height + 12) === Math.round(grokBox.y) && flowStyle.bg === "rgba(0, 0, 0, 0.65)" && flowStyle.r === "16px" && flowStyle.title === "切换到横向流", { flowBtnBox, grokBox, flowStyle });
+await p.locator("#xm-flow-btn").click();
+await p.waitForTimeout(700);
+const flow = () => p.evaluate(() => { const b = document.querySelector("[data-xm-board]"); const cards = [...document.querySelectorAll("[data-xm-placed]")].map((c) => { const [x, y] = c.style.translate.split(" ").map(parseFloat); return { x, y, h: c.offsetHeight, w: c.offsetWidth }; }); return { attr: document.documentElement.getAttribute("data-xm-flow"), pos: getComputedStyle(b).position, sl: b.scrollLeft, sw: b.scrollWidth, cw: b.clientWidth, ch: b.clientHeight, docY: window.scrollY, doc: document.documentElement.scrollHeight, cells: b.children.length, cards, list: window.scroller.props.list.length, stored: localStorage.getItem("xm-flow"), title: document.querySelector("#xm-flow-btn").title }; });
+let fl = await flow();
+const colXs = [...new Set(fl.cards.map((c) => c.x))].sort((a, b) => a - b);
+const fits = fl.cards.every((c) => c.y + c.h <= fl.ch);
+const overlaps = (() => { const byX = {}; for (const c of fl.cards) (byX[c.x] = byX[c.x] || []).push(c); return Object.values(byX).some((a) => a.sort((m, n) => m.y - n.y).some((c, i) => i && c.y < a[i - 1].y + a[i - 1].h)); })();
+check("switching lays cards out in screen-high columns, scrolling sideways", fl.attr === "h" && fl.pos === "fixed" && colXs.length >= 2 && fits && !overlaps && fl.sw > fl.cw && fl.stored === "h" && fl.title === "切换到纵向流", { attr: fl.attr, pos: fl.pos, colXs, fits, overlaps, sw: fl.sw, cw: fl.cw, doc: fl.doc });
+const box = await p.locator("[data-xm-board]").boundingBox();
+await p.mouse.move(box.x + 400, 400);
+await p.mouse.wheel(0, 600);
+await p.waitForTimeout(350);
+fl = await flow();
+const afterY = fl.sl;
+check("a vertical wheel moves the list sideways, the page doesn't scroll", afterY > 500 && fl.docY === 0, { afterY, docY: fl.docY });
+await p.waitForTimeout(300);
+await p.mouse.wheel(500, 0);
+await p.waitForTimeout(350);
+fl = await flow();
+check("a sideways wheel scrolls it natively", fl.sl > afterY + 400, { before: afterY, now: fl.sl });
+const overRail = fl.sl;
+await p.waitForTimeout(300);
+await p.mouse.move(30, 400);
+await p.mouse.wheel(0, 400);
+await p.waitForTimeout(350);
+fl = await flow();
+check("the wheel also works over the rail", fl.sl > overRail + 300, { before: overRail, now: fl.sl });
+for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, 1200); await p.waitForTimeout(220); }
+await p.waitForTimeout(400);
+fl = await flow();
+check("scrolling on mounts and unmounts, and keeps loading the width", fl.sl > 3000 && fl.cells < fl.list && fl.cards.some((c) => c.x >= fl.sl - 600), { sl: fl.sl, cells: fl.cells, list: fl.list });
+// a card taller than its column scrolls inside itself, for the whole gesture
+await p.waitForTimeout(300);
+const tall = await p.evaluate(() => { const c = [...document.querySelectorAll("[data-xm-placed]")].find((e) => { const r = e.getBoundingClientRect(); return r.left > 100 && r.right < innerWidth; }); c.querySelector("article").style.height = "3000px"; c.id = "tall"; return true; });
+await p.waitForTimeout(500);
+const tallBox = await p.locator("#tall").boundingBox();
+const slBefore = (await flow()).sl;
+await p.mouse.move(tallBox.x + 40, tallBox.y + 40);
+await p.mouse.wheel(0, 300);
+await p.waitForTimeout(150);
+const tallState = await p.evaluate(() => { const c = document.getElementById("tall"); return { top: c.scrollTop, h: c.clientHeight, sh: c.scrollHeight, sl: document.querySelector("[data-xm-board]").scrollLeft }; });
+check("a card taller than its column scrolls itself", tall && tallState.top > 200 && Math.abs(tallState.sl - slBefore) < 2 && tallState.h <= (await flow()).ch, { tallState, slBefore });
+await p.waitForTimeout(250);
+await p.locator("#xm-flow-btn").click();
+await p.waitForTimeout(600);
+fl = await flow();
+const backXs = new Set(fl.cards.map((c) => c.x));
+check("switching back gives the vertical masonry and clears the setting", fl.attr === null && fl.pos !== "fixed" && backXs.size === 4 && fl.stored === null && fl.sl === 0 && fl.docY > 0, { attr: fl.attr, pos: fl.pos, cols: backXs.size, stored: fl.stored, docY: fl.docY });
+await p.evaluate(() => window.scrollTo(0, 0));
+await p.waitForTimeout(300);
 
 // a card's other links still navigate normally
 await p.locator("[data-xm-placed] a.user").first().click();

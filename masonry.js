@@ -33,6 +33,9 @@
   const ATTACH_TIMEOUT = 8000; // ms on /home without a list before giving up
   const COLS_KEY = "xm-cols";
   const NAV_KEY = "xm-nav";
+  const FLOW_KEY = "xm-flow";
+  const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
+  const GESTURE_GAP = 180; // ms without wheel events before the next one starts a new gesture
   const READY_TIMEOUT = 3000; // ms after attaching to stop hiding a list with nothing to place
   const NAV_LABELS_MIN_WINDOW = 1265; // X draws its rail labels from about this wide
   const PANEL_CACHE = 3; // side-panel pages kept alive
@@ -74,6 +77,9 @@
   let frameCount = 0;
   let lastPath = "";
   let navOpen = localStorage.getItem(NAV_KEY) === "open";
+  let flowSideways = localStorage.getItem(FLOW_KEY) === "h";
+  let flowBtn = null;
+  let gesture = { at: 0, kind: null };
   let tabsBtn = null;
   let navBtn = null;
   let tabsCloseTimer = 0;
@@ -183,6 +189,12 @@
         board.dirty = true;
       }
     }
+    for (const id of board.placed.keys()) {
+      if (!byId.has(id)) {
+        board.placed.delete(id);
+        board.dirty = true;
+      }
+    }
     for (const cache of [board.heights, board.seen, board.tops]) {
       for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
     }
@@ -216,17 +228,77 @@
       stallId: null,
       stallFrames: 0,
       y: 0,
+      x: 0, // scroll position in the sideways flow
+      flow: "v",
+      colH: 0,
+      totalW: 0,
       restoreFrames: 0,
     };
   }
 
+  // Sideways: screen-high columns, filled in order. A card that doesn't fit where the
+  // last one went can still use a gap in the columns just before it, so columns end up
+  // full without the order wandering. Worked out from the sequence each time, so a
+  // height change only moves cards after it.
+  function relayoutSideways(b) {
+    const seq = b.order.filter((id) => b.placed.has(id));
+    const columns = [];
+    const bottoms = [];
+    const heightOf = (id) => Math.min(b.heights.get(id) || 0, b.colH);
+
+    const put = (unit, height) => {
+      let col = -1;
+      for (let c = Math.max(0, columns.length - FLOW_LOOKBACK); c < columns.length; c++) {
+        if (bottoms[c] + (bottoms[c] > 0 && height > 1 ? GAP : 0) + height <= b.colH) {
+          col = c;
+          break;
+        }
+      }
+      if (col < 0) {
+        col = columns.push([]) - 1;
+        bottoms.push(0);
+      }
+      let y = bottoms[col];
+      if (y > 0 && height > 1) y += GAP;
+      unit.forEach((id, i) => {
+        const p = b.placed.get(id);
+        p.col = col;
+        p.shownJoin = i > 0;
+        if (i > 0) b.joinsNext.add(unit[i - 1]);
+        columns[col].push(id);
+        b.tops.set(id, y);
+        y += heightOf(id);
+      });
+      bottoms[col] = y;
+    };
+
+    b.joinsNext.clear();
+    for (let i = 0; i < seq.length; ) {
+      let j = i + 1;
+      let height = heightOf(seq[i]);
+      while (j < seq.length && b.placed.get(seq[j]).join) height += heightOf(seq[j++]);
+      const unit = seq.slice(i, j);
+      // A conversation too tall for one column stays together as far as it can't: card by card.
+      if (height <= b.colH) put(unit, height);
+      else for (const id of unit) put([id], heightOf(id));
+      i = j;
+    }
+    b.columns = columns;
+    b.bottoms = bottoms;
+    b.totalW = 2 * PAD + columns.length * (b.colw + GAP) - (columns.length ? GAP : 0);
+    b.total = 0;
+    b.dirty = false;
+  }
+
   function relayout(b) {
+    if (b.flow === "h") return relayoutSideways(b);
     b.joinsNext.clear();
     b.bottoms = b.columns.map((col) => {
       let y = 0;
       col.forEach((id, i) => {
         const p = b.placed.get(id);
         const h = b.heights.get(id) || 0;
+        p.shownJoin = p.join;
         if (y > 0 && !p.join && h > 1) y += GAP;
         if (i > 0 && p.join) b.joinsNext.add(col[i - 1]);
         b.tops.set(id, y);
@@ -262,6 +334,15 @@
   function placeCard(b, id, atFront) {
     const g = b.group;
     const joined = !!(g && g.col !== null);
+    if (b.flow === "h") {
+      if (g) {
+        g.col = 0;
+        g.member = id;
+      }
+      b.placed.set(id, { col: 0, join: joined, shownJoin: joined });
+      b.dirty = true;
+      return;
+    }
     let col;
     if (joined) {
       col = g.col;
@@ -283,7 +364,7 @@
     } else {
       b.columns[col].push(id);
     }
-    b.placed.set(id, { col, join: joined });
+    b.placed.set(id, { col, join: joined, shownJoin: joined });
     b.dirty = true;
   }
 
@@ -294,7 +375,7 @@
 
   // Posts new at the top of the list only join the board when the view is near
   // the top; mounting them from further down would mean mounting everything between.
-  const farFromTop = (b) => b.y > innerHeight;
+  const farFromTop = (b) => (b.flow === "h" ? b.x > innerWidth : b.y > innerHeight);
 
   // The card's column is fixed here. Cards are taken strictly in list order, so a
   // card that is still loading holds back the ones after it.
@@ -386,6 +467,27 @@
     return null;
   }
 
+  // The first card in the sideways view, to come back to after a change of layout.
+  function anchorSideways(b, viewLeft) {
+    if (b.dirty) relayout(b);
+    const stride = b.colw + GAP;
+    for (const id of b.order) {
+      const p = b.placed.get(id);
+      if (p && p.col * stride + b.colw > viewLeft) return { id, offset: 0, frames: 90 };
+    }
+    return null;
+  }
+
+  function changeFlow(c, b, sideways) {
+    const anchor = b.flow === "h" ? anchorSideways(b, c.el.scrollLeft) : anchorAt(b, -c.el.getBoundingClientRect().top - PAD);
+    b.flow = sideways ? "h" : "v";
+    if (!sideways) b.columns = []; // dealt again below
+    b.dirty = true;
+    b.restoreFrames = 0;
+    if (anchor && b.placed.size) b.anchor = anchor;
+    if (!sideways) c.el.scrollLeft = 0;
+  }
+
   // ---- attach -------------------------------------------------------------
 
   function boardFor(key) {
@@ -406,6 +508,16 @@
       if (!y) vp.scrollTo(x, y);
     };
     S._viewport = proxy;
+
+    // "Back to the top" (the new-posts pill, Home) means the first column sideways.
+    if (!vp.__xmHooked) {
+      vp.__xmHooked = true;
+      const toTop = vp.scrollToTop;
+      vp.scrollToTop = function (...args) {
+        if (current && current.board.flow === "h") current.el.scrollLeft = 0;
+        return toTop.apply(this, args);
+      };
+    }
 
     let props = S.props;
     const adopt = (p) => {
@@ -433,7 +545,7 @@
     el.setAttribute("data-xm-board", "");
     const key = String(S.props.cacheKey);
     const board = boardFor(key);
-    board.restoreFrames = board.y > 0 ? 40 : 0;
+    board.restoreFrames = board.y > 0 || board.x > 0 ? 40 : 0;
     current = { S, el, vp, st, key, board, attachedAt: performance.now() };
     S._scheduleCriticalUpdate();
   }
@@ -446,6 +558,7 @@
     S._viewport = vp;
     const props = S.props;
     Object.defineProperty(S, "props", { configurable: true, enumerable: true, writable: true, value: props });
+    el.scrollLeft = 0;
     el.removeAttribute("data-xm-board");
     root.removeAttribute("data-xm-ready");
     for (const cell of el.children) {
@@ -497,8 +610,10 @@
   function requestItems(c, y0, y1, fillTo, cols) {
     const { S, st, board: b } = c;
     const list = S.props.list;
-    const shortestBottom = b.bottoms.length ? Math.min(...b.bottoms) : 0;
-    let want = shortestBottom < fillTo ? cols * 3 : 0;
+    const sideways = b.flow === "h";
+    const stride = b.colw + GAP;
+    const reached = sideways ? b.columns.length * stride : b.bottoms.length ? Math.min(...b.bottoms) : 0;
+    let want = reached < fillTo ? cols * 3 : 0;
     let wantFront = farFromTop(b) ? 0 : cols * 3; // new posts at the top don't depend on column depth
     const lastPlaced = lastPlacedIndex(b, list);
     b.requested.clear();
@@ -513,7 +628,12 @@
       const t = b.tops.get(id);
       let keep = false;
       if (b.placed.has(id)) {
-        keep = t + (b.heights.get(id) || 0) >= y0 && t <= y1;
+        if (sideways) {
+          const x = b.placed.get(id).col * stride;
+          keep = x + b.colw >= y0 && x <= y1;
+        } else {
+          keep = t + (b.heights.get(id) || 0) >= y0 && t <= y1;
+        }
       } else if (!NOT_A_CARD.test(id) && !(b.skipped.has(id) && (b.heights.get(id) || 0) <= 1)) {
         if (k < lastPlaced) {
           if (wantFront > 0) {
@@ -552,21 +672,21 @@
 
   function placeCells(c, colw) {
     const { S, board: b } = c;
-    const parkY = (b.bottoms.length ? Math.min(...b.bottoms) : 0) + PAD;
+    const sideways = b.flow === "h";
+    const parkAt = sideways ? `${b.totalW}px ${PAD}px` : `${PAD}px ${(b.bottoms.length ? Math.min(...b.bottoms) : 0) + PAD}px`;
     for (const [id, comp] of S._cells) {
       const cell = comp && comp.getElement && comp.getElement();
       if (!cell) continue;
       const p = b.placed.get(id);
       if (!p) {
         if (cell.hasAttribute("data-xm-placed")) cell.removeAttribute("data-xm-placed");
-        const park = `${PAD}px ${parkY}px`;
-        if (cell.__xm !== park) cell.style.translate = cell.__xm = park;
+        if (cell.__xm !== parkAt) cell.style.translate = cell.__xm = parkAt;
         continue;
       }
       const v = `${PAD + p.col * (colw + GAP)}px ${PAD + b.tops.get(id)}px`;
       if (cell.__xm !== v) cell.style.translate = cell.__xm = v;
       if (!cell.hasAttribute("data-xm-placed")) cell.setAttribute("data-xm-placed", "");
-      const join = [p.join && "prev", b.joinsNext.has(id) && "next"].filter(Boolean).join(" ");
+      const join = [p.shownJoin && "prev", b.joinsNext.has(id) && "next"].filter(Boolean).join(" ");
       if ((cell.getAttribute("data-xm-join") || "") !== join) {
         if (join) cell.setAttribute("data-xm-join", join);
         else cell.removeAttribute("data-xm-join");
@@ -578,6 +698,9 @@
 
   const ICON_LIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><path d="M3.8 6h.01M3.8 12h.01M3.8 18h.01" stroke-width="2.6"/></svg>';
   const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+
+  const ICON_FLOW_V = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4" width="7" height="9" rx="1.5"/><rect x="3.5" y="16" width="7" height="4" rx="1.5"/><rect x="13.5" y="4" width="7" height="4" rx="1.5"/><rect x="13.5" y="11" width="7" height="9" rx="1.5"/></svg>';
+  const ICON_FLOW_H = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="16" rx="1.5"/><rect x="11" y="4" width="6" height="16" rx="1.5"/><path d="M20 8l2 4-2 4"/></svg>';
 
   function setTabsOpen(open) {
     clearTimeout(tabsCloseTimer);
@@ -620,6 +743,7 @@
       });
     }
     if (tabsBtn.parentElement !== header) header.append(tabsBtn, navBtn);
+    placeFlowButton(header);
     // React may have rebuilt the rail under an open panel.
     if (panelHref && !(panelLink && panelLink.isConnected)) {
       markLink(header.querySelector(`nav a[href="${CSS.escape(panelHref)}"]`));
@@ -655,6 +779,41 @@
       const name = selected ? selected.innerText.trim() : "";
       if (tabsBtn.title !== name) tabsBtn.title = name;
     }
+  }
+
+  // Stacked above X's own floating Grok and chat buttons, and styled from them.
+  function placeFlowButton(header) {
+    if (!flowBtn) {
+      flowBtn = makeButton("xm-flow-btn", "", "");
+      flowBtn.addEventListener("click", () => {
+        flowSideways = !flowSideways;
+        if (flowSideways) localStorage.setItem(FLOW_KEY, "h");
+        else localStorage.removeItem(FLOW_KEY);
+        quietFrames = 0;
+      });
+    }
+    if (flowBtn.parentElement !== header) header.append(flowBtn);
+    const label = flowSideways ? "切换到纵向流" : "切换到横向流";
+    if (flowBtn.title !== label) {
+      flowBtn.title = label;
+      flowBtn.setAttribute("aria-label", label);
+      flowBtn.innerHTML = flowSideways ? ICON_FLOW_V : ICON_FLOW_H;
+    }
+    const near = [...document.querySelectorAll('[data-testid="GrokDrawer"] button, [data-testid="chat-drawer-root"] button')].filter((e) => e.offsetWidth > 0);
+    if (!near.length) {
+      root.style.removeProperty("--xm-flow-top");
+      root.style.removeProperty("--xm-flow-left");
+      return;
+    }
+    const top = near.reduce((a, e) => (e.getBoundingClientRect().top < a.getBoundingClientRect().top ? e : a));
+    const r = top.getBoundingClientRect();
+    setVar("--xm-flow-size", Math.round(r.width) + "px");
+    setVar("--xm-flow-top", Math.round(r.top - r.height - 12) + "px");
+    setVar("--xm-flow-left", Math.round(r.left) + "px");
+    const cs = getComputedStyle(top);
+    setVar("--xm-flow-bg", cs.backgroundColor);
+    setVar("--xm-flow-border", cs.border);
+    setVar("--xm-flow-shadow", cs.boxShadow);
   }
 
   // Hovering the icon or the list keeps it open, and so does anything opened from
@@ -977,24 +1136,39 @@
     if (key !== c.key) {
       c.key = key;
       c.board = boardFor(key);
-      c.board.restoreFrames = c.board.y > 0 ? 40 : 0;
+      c.board.restoreFrames = c.board.y > 0 || c.board.x > 0 ? 40 : 0;
       c.st.k0 = c.st.k1 = -1;
       if (!c.board.y) scrollTo(0, 0);
+      c.el.scrollLeft = c.board.x;
     }
     const b = c.board;
     if (b.lastOut !== c.S.props.list) c.S.props.list = arrange(b, c.S.props.list);
 
     const pc = c.el.closest('[data-testid="primaryColumn"]');
     placeControls(pc);
+    if ((b.flow === "h") !== flowSideways) {
+      changeFlow(c, b, flowSideways);
+      c.st.k0 = c.st.k1 = -1;
+    }
+    setAttr("data-xm-flow", flowSideways ? "h" : null);
+    const sideways = b.flow === "h";
+
     const width = pc.getBoundingClientRect().width;
     const cols = pickColumns(width);
     const colw = Math.floor((width - 2 * PAD - (cols - 1) * GAP) / cols);
-    if (b.columns.length !== cols || (b.colw && b.colw !== colw)) {
+    if (sideways) {
+      const colH = c.el.clientHeight - 2 * PAD;
+      if (b.placed.size && b.colH && (b.colw !== colw || b.colH !== colH) && !b.anchor) b.anchor = anchorSideways(b, c.el.scrollLeft);
+      if (b.colw !== colw || b.colH !== colH) b.dirty = true;
+      b.colH = colH;
+      setVar("--xm-colh", colH + "px");
+    } else if (b.columns.length !== cols || (b.colw && b.colw !== colw)) {
       const top = c.el.getBoundingClientRect().top;
-      if (b.columns.length && b.y > 0) b.anchor = anchorAt(b, -top - PAD);
+      if (!b.anchor && b.columns.length && b.y > 0) b.anchor = anchorAt(b, -top - PAD);
       if (b.columns.length !== cols) changeColumns(b, cols);
     }
     b.colw = colw;
+    b.shownCols = cols;
     setVar("--xm-colw", colw + "px");
 
     const now = performance.now();
@@ -1007,32 +1181,50 @@
     }
 
     const yBefore = b.y;
+    const xBefore = b.x;
     measure(c);
     const placedAny = placeReady(c);
     const moved = placedAny || b.dirty;
     if (b.dirty) relayout(b);
     setVar("--xm-total", b.total + "px");
+    if (sideways) setVar("--xm-total-w", b.totalW + "px");
 
     if (b.anchor) {
       const top = b.tops.get(b.anchor.id);
-      const docTop = c.el.getBoundingClientRect().top + scrollY;
-      if (top !== undefined) scrollTo(0, docTop + PAD + top - b.anchor.offset);
+      if (sideways) {
+        const p = b.placed.get(b.anchor.id);
+        if (p) c.el.scrollLeft = p.col * (colw + GAP);
+      } else if (top !== undefined) {
+        const docTop = c.el.getBoundingClientRect().top + scrollY;
+        scrollTo(0, docTop + PAD + top - b.anchor.offset);
+      }
       if (top === undefined || --b.anchor.frames <= 0) b.anchor = null;
     }
     const rect = c.el.getBoundingClientRect();
     if (b.restoreFrames > 0) {
       b.restoreFrames--;
-      if (b.y > 0) scrollTo(0, b.y);
+      if (sideways) c.el.scrollLeft = b.x;
+      else if (b.y > 0) scrollTo(0, b.y);
     }
-    if (!OVERLAY_ROUTE.test(location.pathname) && !b.restoreFrames) b.y = scrollY;
+    if (!OVERLAY_ROUTE.test(location.pathname) && !b.restoreFrames) {
+      if (sideways) b.x = c.el.scrollLeft;
+      else b.y = scrollY;
+    }
 
-    const viewTop = -rect.top - PAD;
-    const margin = innerHeight * KEEP_SCREENS;
-    requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
+    if (sideways) {
+      const left = c.el.scrollLeft;
+      const view = c.el.clientWidth;
+      const margin = view * KEEP_SCREENS;
+      requestItems(c, left - margin, left + view + margin, left + view * (1 + FILL_SCREENS), cols);
+    } else {
+      const viewTop = -rect.top - PAD;
+      const margin = innerHeight * KEEP_SCREENS;
+      requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
+    }
     placeCells(c, colw);
     if (!c.el.hasAttribute("data-xm-board")) c.el.setAttribute("data-xm-board", "");
     if (b.placed.size > 0 || performance.now() - c.attachedAt > READY_TIMEOUT) toggleAttr("data-xm-ready", true);
-    const busy = moved || b.y !== yBefore || b.anchor || b.restoreFrames > 0 || b.stallId !== null;
+    const busy = moved || b.y !== yBefore || b.x !== xBefore || b.anchor || b.restoreFrames > 0 || b.stallId !== null;
     quietFrames = busy ? 0 : quietFrames + 1;
     errors = 0;
   }
@@ -1044,7 +1236,7 @@
     // change or a scroll always gets it at once.
     frameCount++;
     const b = current && current.board;
-    const changed = location.pathname !== lastPath || (b && scrollY !== b.y);
+    const changed = location.pathname !== lastPath || (b && (b.flow === "h" ? current.el.scrollLeft !== b.x : scrollY !== b.y));
     lastPath = location.pathname;
     if (changed) quietFrames = 0;
     if (quietFrames > IDLE_FRAMES && frameCount % IDLE_EVERY) return;
@@ -1071,7 +1263,7 @@
     "keydown",
     (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || !current) return;
-      const shown = current.board.columns.length;
+      const shown = current.board.shownCols;
       let next;
       if (e.code === "Minus") next = Math.max(1, shown - 1);
       else if (e.code === "Equal") next = Math.min(8, shown + 1);
@@ -1084,6 +1276,42 @@
       else localStorage.removeItem(COLS_KEY);
     },
     true,
+  );
+
+  // Sideways, the list scrolls itself, and the wheel works anywhere in the window. The
+  // direction is decided once per gesture: a sideways swipe stays entirely native, or
+  // the small vertical wobble at the end of its inertia would drag the list about. A
+  // vertical gesture starting on a card too tall for its column scrolls that card.
+  addEventListener(
+    "wheel",
+    (e) => {
+      if (!current || current.board.flow !== "h" || e.ctrlKey || !root.hasAttribute("data-xm-on")) return;
+      if (root.hasAttribute("data-xm-panel-open") || root.hasAttribute("data-xm-post-open")) return;
+      const t = e.target;
+      if (!t.closest || t.closest('#layers, [role="dialog"], [data-xm-tabs]')) return;
+
+      const now = performance.now();
+      if (now - gesture.at > GESTURE_GAP) gesture.kind = null;
+      gesture.at = now;
+      const unit = e.deltaMode === 1 ? 40 : 1;
+      const dx = e.deltaX * unit;
+      const dy = e.deltaY * unit;
+      const cell = t.closest("[data-xm-placed]");
+      if (!gesture.kind) {
+        if (Math.abs(dx) > Math.abs(dy)) gesture.kind = "x";
+        else if (cell && cell.scrollHeight > cell.clientHeight + 1 && (dy > 0 ? cell.scrollTop + cell.clientHeight < cell.scrollHeight - 1 : cell.scrollTop > 0)) gesture.kind = "card";
+        else gesture.kind = "y";
+      }
+      if (gesture.kind === "card") return;
+      if (gesture.kind === "x") {
+        if (t.closest("[data-xm-board]")) return;
+        current.el.scrollLeft += dx; // over the rail, where nothing would scroll
+      } else {
+        current.el.scrollLeft += dy;
+      }
+      e.preventDefault();
+    },
+    { capture: true, passive: false },
   );
 
   // Don't fight the user while putting the view back.
@@ -1105,6 +1333,7 @@
     root.setAttribute("data-xm-on", "");
     homeSince = performance.now();
     if (navOpen && innerWidth >= NAV_LABELS_MIN_WINDOW) root.setAttribute("data-xm-nav", "open");
+    if (flowSideways) root.setAttribute("data-xm-flow", "h");
   }
 
   requestAnimationFrame(frame);

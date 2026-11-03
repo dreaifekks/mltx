@@ -542,3 +542,80 @@ html[data-xm-post-loading] #xm-post::after {
     rotate: 360deg;
   }
 }
+
+/* ---- Sideways flow: the list scrolls itself, in screen-high columns. ---------- */
+
+html[data-xm-on][data-xm-flow="h"] {
+  overflow-y: hidden !important;
+}
+
+html[data-xm-on][data-xm-flow="h"] [data-xm-board] {
+  position: fixed !important;
+  top: 0;
+  left: var(--xm-rail, 72px);
+  right: 0;
+  bottom: 0;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--xm-fg, #fff) 35%, transparent) transparent;
+}
+
+/* X only mounts what's near the view, so this keeps the whole width scrollable. */
+html[data-xm-on][data-xm-flow="h"] [data-xm-board]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--xm-total-w, 0px);
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+/* Taller than a column: the card scrolls inside itself. */
+html[data-xm-on][data-xm-flow="h"] [data-xm-board] > [data-testid="cellInnerDiv"] {
+  max-height: var(--xm-colh, 100vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ---- Flow switch: above X's floating Grok and chat buttons, looking like them. ------ */
+
+#xm-flow-btn {
+  display: none;
+  position: fixed;
+  top: var(--xm-flow-top, calc(100vh - 215px));
+  left: var(--xm-flow-left, calc(100vw - 75px));
+  width: var(--xm-flow-size, 55px);
+  height: var(--xm-flow-size, 55px);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-sizing: border-box;
+  border: var(--xm-flow-border, 1px solid rgb(75 78 82));
+  border-radius: 16px;
+  cursor: pointer;
+  color: var(--xm-fg, rgb(231 233 234));
+  background: var(--xm-flow-bg, rgb(0 0 0 / 0.65));
+  box-shadow: var(--xm-flow-shadow, none);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html[data-xm-on] #xm-flow-btn {
+  display: flex;
+}
+
+#xm-flow-btn:hover {
+  background: color-mix(in srgb, var(--xm-fg, #fff) 14%, var(--xm-bg, #000));
+}
+
+#xm-flow-btn svg {
+  width: 28px;
+  height: 28px;
+}
