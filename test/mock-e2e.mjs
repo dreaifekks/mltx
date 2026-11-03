@@ -162,6 +162,28 @@ await f.evaluate(() => history.back());
 await p.waitForTimeout(150);
 const backed = await f.evaluate(() => ({ path: location.pathname, pops: window.__pops.length }));
 check("the panel's own back still works", backed.path === "/notifications" && backed.pops === 1 && (await p.evaluate(() => location.pathname)) === "/home", backed);
+const chain = await f.evaluate(async () => {
+  const seen = [];
+  const on = (e) => seen.push([e.state && e.state.n, history.state && history.state.n, location.pathname]);
+  addEventListener("popstate", on);
+  history.pushState({ n: 1 }, "", "/a");
+  history.pushState({ n: 2 }, "", "/b");
+  history.pushState({ n: 3 }, "", "/c");
+  history.back();
+  history.back();
+  const sameTask = location.pathname;
+  await new Promise((r) => setTimeout(r, 60));
+  history.go(-99);
+  await new Promise((r) => setTimeout(r, 60));
+  const afterFar = location.pathname;
+  let threw = false;
+  try { history.pushState(() => {}, "", "/bad"); } catch { threw = true; }
+  history.back();
+  await new Promise((r) => setTimeout(r, 60));
+  removeEventListener("popstate", on);
+  return { seen, sameTask, afterFar, threw, end: location.pathname };
+});
+check("repeated back stays consistent, too-far is ignored, a failed push leaves no entry", chain.sameTask === "/c" && JSON.stringify(chain.seen.slice(0, 2)) === JSON.stringify([[2, 2, "/b"], [1, 1, "/a"]]) && chain.afterFar === "/a" && chain.threw && chain.end === "/notifications" && chain.seen.length === 3, chain);
 await railLink("Notifications").click();
 await p.waitForTimeout(150);
 

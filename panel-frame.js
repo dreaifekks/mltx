@@ -13,16 +13,22 @@ if (window !== window.top) {
   const behind = []; // entries before the current one
 
   history.pushState = (state, title, url) => {
-    behind.push({ state: history.state, url: location.href });
-    replace.call(history, state, title, url);
+    const entry = { state: history.state, url: location.href };
+    replace.call(history, state, title, url); // throws on a bad state or URL, like the original
+    behind.push(entry);
   };
 
-  const go = (delta) => {
-    if (!(delta < 0) || behind.length === 0) return;
-    let entry;
-    for (let i = 0; i < -delta && behind.length; i++) entry = behind.pop();
-    replace.call(history, entry.state, "", entry.url);
-    setTimeout(() => dispatchEvent(new PopStateEvent("popstate", { state: entry.state })));
+  // Asynchronous as a whole, like a real traversal, so several in a row stay in order
+  // and the event always matches the current location.
+  const go = (delta = 0) => {
+    const n = Math.trunc(Number(delta)) || 0;
+    if (n === 0) return location.reload();
+    setTimeout(() => {
+      if (n > 0 || -n > behind.length) return;
+      const entry = behind.splice(n)[0];
+      replace.call(history, entry.state, "", entry.url);
+      dispatchEvent(new PopStateEvent("popstate", { state: entry.state }));
+    });
   };
 
   history.go = go;
