@@ -349,7 +349,7 @@ check("a card growing earlier on leaves the first card in view where it is", hel
 // a conversation split across columns, then its head dropped
 const splitTest = await p.evaluate(async () => {
   const S = window.scroller; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const orig = S._h; S._h = (i) => (i.id === "tweet-901" || i.id === "tweet-902" ? 700 : orig(i));
+  const orig = S._h; S._h = (i) => (i.id.startsWith("impressionPlaceholder") ? 0 : i.id === "tweet-901" || i.id === "tweet-902" ? 700 : orig(i));
   const mk = (id) => ({ id });
   const conv = [mk("impressionPlaceholder-home-conversation-902"), mk("tweet-901"), mk("tweet-902")];
   const list = S.props.list;
