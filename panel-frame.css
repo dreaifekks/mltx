@@ -17,3 +17,91 @@ html[data-xm-panel] [data-testid="primaryColumn"] {
   border-left-width: 0 !important;
   border-right-width: 0 !important;
 }
+
+/* ---- Post view: post on the left, actions, reply box and replies on the right. ------ */
+
+html[data-xm-post] {
+  --xm-split: 66.6%;
+}
+
+/* The top bar ("Post", back arrow) has no job in a floating window. */
+html[data-xm-post] [data-testid="primaryColumn"] > div > div:first-child {
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  visibility: hidden !important;
+}
+
+/* Replies: the page's own scroll, in the right pane, below the pinned bars. */
+html[data-xm-post] main [data-testid="primaryColumn"] {
+  margin-left: var(--xm-split) !important;
+  width: calc(100% - var(--xm-split)) !important;
+  min-width: 0 !important;
+  flex-grow: 0 !important;
+  flex-shrink: 0 !important;
+  padding-top: var(--xm-right-top, 53px);
+  box-sizing: border-box;
+}
+
+html[data-xm-post] main :has(> [data-testid="primaryColumn"]) {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* The post: its own pane and its own scrolling. Short posts sit in the middle of it. */
+html[data-xm-post] [data-xm-focal] {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  width: var(--xm-split) !important;
+  transform: none !important;
+  transition: none !important;
+  will-change: auto !important;
+  opacity: 1 !important;
+  z-index: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: safe center;
+  box-sizing: border-box;
+  padding: 16px 12px;
+  background: Canvas;
+  border-right: 1px solid rgb(127 127 127 / 0.28);
+}
+
+html[data-xm-post] [data-xm-focal] > * {
+  flex: 0 0 auto;
+}
+
+html[data-xm-post] [data-xm-focal] article {
+  border-bottom-width: 0 !important;
+}
+
+/* Pinned to the top of the right pane. Its parents are unclipped, being position: static. */
+html[data-xm-post] [data-xm-actions] {
+  position: fixed !important;
+  top: 0;
+  left: var(--xm-split);
+  right: 0;
+  z-index: 2;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  box-sizing: border-box;
+  background: Canvas;
+  border-top-width: 0 !important;
+  border-bottom: 1px solid rgb(127 127 127 / 0.28) !important;
+}
+
+html[data-xm-post] [data-xm-composer] {
+  position: fixed !important;
+  top: var(--xm-actions-height, 48px);
+  left: var(--xm-split);
+  right: 0;
+  z-index: 2;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: Canvas;
+  border-bottom: 1px solid rgb(127 127 127 / 0.28);
+}

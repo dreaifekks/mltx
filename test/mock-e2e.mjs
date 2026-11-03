@@ -35,7 +35,7 @@ const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollT
 class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:Array.from({length:60},(_,i)=>({id:'tweet-'+i})),minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
-u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article style="height:'+h+'px"><a href="/x/status/1">'+it.id+'</a></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
+u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article data-testid="tweet" style="height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
@@ -236,12 +236,46 @@ check("clicking the tab icon swaps the panel for the list", await p.evaluate(() 
 await p.mouse.move(1000, 500);
 await p.waitForTimeout(400);
 
-// the card's own links still navigate normally
-await p.locator('[data-testid="SideNav_NewTweet_Button"]').count();
-await p.locator("[data-xm-placed] a").first().click();
+// ---- post window ---------------------------------------------------------------------
+const postState = () => p.evaluate(() => { const e = document.documentElement; const pe = document.querySelector("#xm-post"); const r = pe && pe.getBoundingClientRect(); const sc = document.querySelector("#xm-post-scrim"); const f = pe && pe.querySelector("iframe"); return { open: e.hasAttribute("data-xm-post-open"), visible: !!pe && getComputedStyle(pe).visibility === "visible", rect: r && [r.left, r.top, r.width, r.height].map(Math.round), blur: sc ? getComputedStyle(sc).backdropFilter : null, path: location.pathname, y: window.scrollY, frameName: f && f.name, frameHref: f && f.dataset.xmHref }; });
+const panelBlur = await p.evaluate(() => getComputedStyle(document.querySelector("#xm-panel-scrim")).backdropFilter);
+check("the panel blurs the feed behind it", panelBlur.includes("blur"), panelBlur);
+const card = p.locator('[data-xm-placed] [data-testid="tweetText"]').first();
+await card.scrollIntoViewIfNeeded();
+await p.waitForTimeout(300);
+const cardY = await p.evaluate(() => window.scrollY);
+await card.click();
+await p.waitForTimeout(500);
+let ps = await postState();
+const statusHref = ps.frameHref;
+check("clicking a card opens the post window over a blurred feed, feed stays", ps.open && ps.visible && ps.path === "/home" && ps.y === cardY && ps.blur.includes("blur") && /^\/x\/status\/\d+$/.test(ps.frameHref) && ps.frameName === "xm-post", ps);
+await p.mouse.click(20, 860);
+await p.waitForTimeout(250);
+ps = await postState();
+check("clicking outside closes it, the feed where it was", !ps.open && !ps.visible && ps.y === cardY && ps.path === "/home", ps);
+const entryBefore = hits.filter((u) => u === "/i/history").length;
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(2).click();
+await p.waitForTimeout(400);
+ps = await postState();
+const framePath = await p.frames().find((x) => x.name() === "xm-post").evaluate(() => location.pathname);
+check("the next post reuses the window, without loading a page", ps.open && ps.frameHref !== statusHref && framePath === ps.frameHref && hits.filter((u) => u === "/i/history").length === entryBefore, { ps, framePath, entryBefore });
+await p.keyboard.press("Escape");
+await p.waitForTimeout(200);
+check("Esc closes it", !(await postState()).open);
+const newTabsBefore = ctx.pages().length;
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').first().click({ modifiers: ["Meta"] });
+await p.waitForTimeout(200);
+check("Cmd-click doesn't open the window", !(await postState()).open);
+for (const extra of ctx.pages().slice(newTabsBefore)) await extra.close();
+await p.locator('[data-xm-placed] [data-testid="like"]').first().click();
+await p.waitForTimeout(150);
+check("buttons on a card don't open it", !(await postState()).open);
+
+// a card's other links still navigate normally
+await p.locator("[data-xm-placed] a.user").first().click();
 await p.waitForTimeout(500);
 const off = await p.evaluate(() => ({ path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on"), ready: document.documentElement.hasAttribute("data-xm-ready"), panel: document.documentElement.hasAttribute("data-xm-panel-open") }));
-check("other pages turn everything off", off.path === "/x/status/1" && !off.on && !off.ready && !off.panel, off);
+check("other pages turn everything off", off.path === "/someone" && !off.on && !off.ready && !off.panel, off);
 
 // ---- errors fall back to X's own page, with nothing left on top ---------------------
 await p.goto("https://x.com/home");

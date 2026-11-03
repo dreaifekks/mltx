@@ -268,12 +268,14 @@ html[data-xm-nav="open"] #xm-nav-btn svg {
   box-shadow: 1px 0 0 var(--xm-stroke, rgb(47 51 54)), 12px 0 32px rgb(0 0 0 / 0.4);
 }
 
-/* Clicking anything outside the sheet goes back to the feed. Wheel still scrolls it. */
+/* Blurs the feed. Clicking anywhere on it goes back. */
 #xm-panel-scrim {
   left: calc(var(--xm-rail, 72px) + min(700px, calc(100vw - var(--xm-rail, 72px) - 160px)));
   right: 0;
   z-index: 2;
-  background: rgb(0 0 0 / 0.28);
+  background: rgb(0 0 0 / 0.32);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 html[data-xm-on][data-xm-panel-open] #xm-panel,
@@ -468,4 +470,75 @@ html[data-xm-on] [data-xm-board] > [data-testid="cellInnerDiv"] > div {
 
 html[data-xm-on] [data-xm-board] article {
   border-bottom-width: 0 !important;
+}
+
+/* ---- Post view: X's post page in a floating window, the feed blurred behind. ------- */
+
+#xm-post-scrim,
+#xm-post {
+  position: fixed;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+#xm-post-scrim {
+  inset: 0;
+  z-index: 3;
+  background: rgb(0 0 0 / 0.42);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+#xm-post {
+  top: 5vh;
+  left: 50%;
+  translate: -50% 0;
+  width: min(1360px, 92vw);
+  height: 90vh;
+  z-index: 3;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--xm-bg, #000);
+  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54)), 0 18px 60px rgb(0 0 0 / 0.5);
+}
+
+html[data-xm-on][data-xm-post-open] #xm-post-scrim,
+html[data-xm-on][data-xm-post-open] #xm-post {
+  visibility: visible;
+  opacity: 1;
+}
+
+#xm-post iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  transition: opacity 100ms ease;
+}
+
+/* Between posts: show nothing rather than the previous one. */
+html[data-xm-post-loading] #xm-post iframe {
+  opacity: 0;
+}
+
+html[data-xm-post-loading] #xm-post::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 14px);
+  left: calc(50% - 14px);
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--xm-fg, #fff) 22%, transparent);
+  border-top-color: rgb(29 155 240);
+  animation: xm-spin 800ms linear infinite;
+}
+
+@keyframes xm-spin {
+  to {
+    rotate: 360deg;
+  }
 }

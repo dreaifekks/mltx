@@ -42,6 +42,11 @@
   // the real address before X starts.
   const PANEL_ENTRY = "/i/history";
   const PANEL_RETRY_MS = 5000;
+  const POST_READY_TIMEOUT = 5000; // ms before showing the post window whatever state it's in
+  // No allow-top-navigation, so a stray link can't send the feed away. This isn't an
+  // isolation boundary: the frame is x.com's own code, same origin as the page.
+  const FRAME_SANDBOX = "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads";
+  const FRAME_ALLOW = "autoplay; fullscreen; clipboard-write; encrypted-media";
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -76,6 +81,11 @@
   let panelHref = null; // the page showing, or null when closed
   let panelLink = null;
   const panelFrames = new Map(); // href -> iframe, least recently used first
+  let postEl = null;
+  let postScrim = null;
+  let postFrame = null;
+  let postHref = null;
+  let postReadyTimer = 0;
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -732,10 +742,8 @@
       panelFrames.delete(href);
     } else {
       frame = document.createElement("iframe");
-      // No allow-top-navigation, so a stray link can't send the feed away. This isn't an
-      // isolation boundary: the frame is x.com's own code, same origin as the page.
-      frame.setAttribute("sandbox", "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads");
-      frame.setAttribute("allow", "autoplay; fullscreen; clipboard-write; encrypted-media");
+      frame.setAttribute("sandbox", FRAME_SANDBOX);
+      frame.setAttribute("allow", FRAME_ALLOW);
       frame.dataset.xmHref = href;
       frame.src = panelEntryUrl(href);
       frame.addEventListener("load", () => recoverFrame(frame));
@@ -758,6 +766,102 @@
     setTabsOpen(false);
     root.setAttribute("data-xm-panel-open", "");
   }
+
+  // ---- post view -----------------------------------------------------------
+
+  // Clicking a post opens X's own post page in a floating window. One iframe is kept
+  // warm and its router is pointed at each post, so only the first open loads a page.
+  function buildPost() {
+    if (postEl && postEl.isConnected) return;
+    postEl = document.createElement("div");
+    postEl.id = "xm-post";
+    postScrim = document.createElement("div");
+    postScrim.id = "xm-post-scrim";
+    postScrim.addEventListener("click", closePost);
+    document.body.append(postScrim, postEl);
+  }
+
+  function postLoaded() {
+    clearTimeout(postReadyTimer);
+    root.removeAttribute("data-xm-post-loading");
+  }
+
+  function openPost(href) {
+    closePanel();
+    setTabsOpen(false);
+    buildPost();
+    root.setAttribute("data-xm-post-open", "");
+    if (href === postHref) return;
+    postHref = href;
+    root.setAttribute("data-xm-post-loading", "");
+    clearTimeout(postReadyTimer);
+    postReadyTimer = setTimeout(postLoaded, POST_READY_TIMEOUT);
+    if (!postFrame) {
+      postFrame = document.createElement("iframe");
+      postFrame.name = "xm-post";
+      postFrame.setAttribute("sandbox", FRAME_SANDBOX);
+      postFrame.setAttribute("allow", FRAME_ALLOW);
+      postFrame.dataset.xmHref = href;
+      postFrame.src = panelEntryUrl(href);
+      postFrame.addEventListener("load", () => recoverFrame(postFrame));
+      postEl.append(postFrame);
+      return;
+    }
+    postFrame.dataset.xmHref = href;
+    const win = postFrame.contentWindow;
+    win.history.replaceState(null, "", href);
+    win.dispatchEvent(new win.PopStateEvent("popstate", { state: null }));
+  }
+
+  function closePost() {
+    postLoaded();
+    if (postFrame) pauseMedia(postFrame);
+    root.removeAttribute("data-xm-post-open");
+  }
+
+  addEventListener("message", (e) => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.xm === "post-ready") postLoaded();
+    else if (e.data.xm === "close") {
+      closePost();
+      closePanel();
+    }
+  });
+
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
+    closePost();
+    closePanel();
+  });
+
+  // A click on a card opens it, the same clicks that would go to the post page. Buttons,
+  // profile links, hashtags and photos keep doing what they do.
+  addEventListener(
+    "click",
+    (e) => {
+      const t = e.target;
+      if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const article = t.closest('[data-xm-board] article[data-testid="tweet"]');
+      if (!article) return;
+      const time = article.querySelector('a[href*="/status/"] time');
+      const statusLink = time && time.closest("a");
+      if (!statusLink) return;
+      if (!t.closest('[data-testid="tweet-text-show-more-link"]')) {
+        const link = t.closest("a[href]");
+        if (link && link !== statusLink) return;
+        if (t.closest('button, [role="button"], [role="menuitem"], input, textarea')) return;
+        // A quoted post is a link of its own; X goes there.
+        const quote = t.closest('[role="link"]');
+        if (quote && quote !== article && article.contains(quote)) return;
+        if (String(getSelection())) return; // selecting text, not opening
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openPost(statusLink.getAttribute("href"));
+    },
+    true,
+  );
 
   function closePanel() {
     if (panelHref && panelFrames.has(panelHref)) pauseMedia(panelFrames.get(panelHref));
@@ -826,6 +930,7 @@
       if (root.hasAttribute("data-xm-on")) root.removeAttribute("data-xm-on");
       if (root.hasAttribute("data-xm-tabs-open")) setTabsOpen(false);
       if (panelHref) closePanel();
+      closePost();
       root.removeAttribute("data-xm-ready");
       return;
     }
@@ -926,6 +1031,7 @@
           detach();
         } catch {}
         closePanel();
+        closePost();
         setTabsOpen(false);
         root.removeAttribute("data-xm-on");
       }
