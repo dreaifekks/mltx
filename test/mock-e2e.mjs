@@ -277,6 +277,21 @@ check("the post scrolls on the left with actions and reply box pinned below, rep
 check("the sort button heads the right pane", pn.sortHasButton && pn.sort && pn.sort[0] === split && pn.sort[1] === 0, pn.sort);
 const sortFollows = await postFrameOf().evaluate(async () => { document.querySelector('[data-testid="primaryColumn"]').style.minHeight = "3000px"; window.scrollTo(0, 200); await new Promise((r) => setTimeout(r, 200)); const top = Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top); window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 150)); document.querySelector('[data-testid="primaryColumn"]').style.minHeight = ""; return { top, back: Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top) }; });
 check("the sort button scrolls away with the replies", sortFollows.top === -200 && sortFollows.back === 0, sortFollows);
+const sortRelease = await postFrameOf().evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const row = document.querySelector("[data-xm-sort]");
+  row.style.translate = "0px -50px";
+  const group = document.querySelector("[data-xm-actions]");
+  const parent = group.parentElement;
+  const next = group.nextSibling;
+  group.remove(); // the post no longer looks as expected, so the layout stands down
+  await sleep(250);
+  const out = { on: document.documentElement.hasAttribute("data-xm-post"), marked: row.hasAttribute("data-xm-sort"), translate: row.style.translate };
+  parent.insertBefore(group, next);
+  await sleep(250);
+  return out;
+});
+check("standing down leaves the sort row as it was", !sortRelease.on && !sortRelease.marked && sortRelease.translate === "", sortRelease);
 await p.keyboard.press("Escape");
 await p.waitForTimeout(150);
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();

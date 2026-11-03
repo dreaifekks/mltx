@@ -123,14 +123,36 @@ function startPostView() {
     return true;
   }
 
+  const MAX_SORT_ROW = 80;
   const MARKS = ["data-xm-focal", "data-xm-actions", "data-xm-composer", "data-xm-sort"];
   let marked = [null, null, null, null];
+
+  // Keeps the left pane's bottom edge with the reply box as it grows, without waiting
+  // for the next tick.
+  const heights = new ResizeObserver(() => updateHeights());
+
+  function updateHeights() {
+    const [, actions, box, sort] = marked;
+    if (!actions) return;
+    const boxHeight = box ? box.offsetHeight : 0;
+    setVar("--xm-actions-height", `${actions.offsetHeight}px`);
+    setVar("--xm-composer-height", `${boxHeight}px`);
+    setVar("--xm-left-bottom", `${actions.offsetHeight + boxHeight}px`);
+    setVar("--xm-right-top", `${sort ? sort.offsetHeight : 0}px`);
+  }
 
   function setMarks(next) {
     next.forEach((el, i) => {
       if (marked[i] === el) return;
-      if (marked[i]) marked[i].removeAttribute(MARKS[i]);
-      if (el) el.setAttribute(MARKS[i], "");
+      if (marked[i]) {
+        marked[i].removeAttribute(MARKS[i]);
+        if (MARKS[i] === "data-xm-sort") marked[i].style.translate = "";
+        heights.unobserve(marked[i]);
+      }
+      if (el) {
+        el.setAttribute(MARKS[i], "");
+        heights.observe(el);
+      }
     });
     marked = next;
   }
@@ -152,10 +174,12 @@ function startPostView() {
   // The sort button's row: the menu button after the action bar, in its own wrapper.
   function findSortRow(article, actions) {
     const buttons = [...article.querySelectorAll('button[aria-haspopup="menu"]')];
-    const button = buttons.find((b) => !actions.contains(b) && actions.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const button = buttons.find((b) => !actions.contains(b) && actions.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING && !b.closest('[role="link"]'));
     if (!button) return null;
     let row = button;
     while (row.parentElement && !row.parentElement.contains(actions) && !row.parentElement.querySelector("time")) row = row.parentElement;
+    // Only ever a thin row of controls. Anything more stays with the post.
+    if (row.offsetHeight > MAX_SORT_ROW || row.querySelector('[data-testid="tweetText"], [data-testid="tweet"], article, img, video, [role="group"]')) return null;
     return row;
   }
 
@@ -212,10 +236,7 @@ function startPostView() {
     setMarks([cell, actions, box, sort]);
     if (!root.hasAttribute("data-xm-post")) root.setAttribute("data-xm-post", "");
     followScroll();
-    const boxHeight = box ? box.offsetHeight : 0;
-    setVar("--xm-composer-height", `${boxHeight}px`);
-    setVar("--xm-left-bottom", `${actions.offsetHeight + boxHeight}px`);
-    setVar("--xm-right-top", `${sort ? sort.offsetHeight : 0}px`);
+    updateHeights();
     setVar("--xm-canvas", getComputedStyle(document.body).backgroundColor);
 
     if (readyFor !== id && cell.offsetHeight > 0) {
