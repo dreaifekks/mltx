@@ -338,6 +338,18 @@ for (let i = 0; i < 8; i++) { await p.mouse.wheel(0, 1200); await p.waitForTimeo
 await p.waitForTimeout(400);
 fl = await flow();
 check("scrolling on mounts and unmounts, and keeps loading the width", fl.sl > 3000 && fl.cells < fl.list && fl.cards.some((c) => c.x >= fl.sl - 600), { sl: fl.sl, cells: fl.cells, list: fl.list });
+// the post window works from the sideways flow, and leaves the list where it was
+const slForPost = (await flow()).sl;
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(1).click();
+await p.waitForTimeout(350);
+const postInFlow = await postState();
+await p.mouse.move(1500, 880);
+await p.mouse.wheel(0, 500);
+await p.waitForTimeout(250);
+const slUnderPost = (await flow()).sl;
+await p.keyboard.press("Escape");
+await p.waitForTimeout(200);
+check("the post window opens from the sideways flow; the wheel doesn't move the list under it", postInFlow.open && postInFlow.visible && Math.abs(slUnderPost - slForPost) < 2, { open: postInFlow.open, slForPost, slUnderPost });
 // a card taller than its column scrolls inside itself, for the whole gesture
 await p.waitForTimeout(300);
 const tall = await p.evaluate(() => { const c = [...document.querySelectorAll("[data-xm-placed]")].find((e) => { const r = e.getBoundingClientRect(); return r.left > 100 && r.right < innerWidth; }); c.querySelector("article").style.height = "3000px"; c.id = "tall"; return true; });
