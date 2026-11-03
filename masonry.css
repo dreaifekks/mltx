@@ -31,9 +31,151 @@ html[data-xm-on] [data-testid="primaryColumn"] {
   border-right-width: 0 !important;
 }
 
+/* ---- Post box: gone. The rail's + button still opens the composer. --------- */
+
+html[data-xm-on] [data-testid="primaryColumn"] > div > div:has([data-testid="tweetTextarea_0"]),
+html[data-xm-on] [data-testid="primaryColumn"] > div > div:has([data-testid="tweetTextarea_0"]) + div:not(:has([data-xm-board])) {
+  display: none !important;
+}
+
+/* ---- Tabs: out of the top bar, into a list that opens from the rail. ------- */
+
+/* The sticky bar keeps existing at zero height: the "new posts" pill lives in it. */
+html[data-xm-on] [data-xm-tabbar],
+html[data-xm-on] [data-xm-tabbar] > div {
+  height: 0 !important;
+  min-height: 0 !important;
+  border-bottom-width: 0 !important;
+  background: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  will-change: auto !important; /* would make it the positioning base of the fixed list */
+}
+
+html[data-xm-on] [data-xm-tabs] {
+  display: none !important;
+}
+
+html[data-xm-on][data-xm-tabs-open] [data-xm-tabs] {
+  display: flex !important;
+  flex-direction: column !important;
+  position: fixed !important;
+  top: var(--xm-slot-top, 56px);
+  left: calc(var(--xm-rail, 72px) + 6px);
+  width: 260px !important;
+  max-height: calc(100vh - var(--xm-slot-top, 56px) - 12px);
+  overflow-y: auto;
+  border-radius: 16px;
+  background: var(--xm-bg, #000);
+  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54)), 0 8px 28px rgb(0 0 0 / 0.45);
+}
+
+html[data-xm-on] [data-xm-tabs] > div:first-child,
+html[data-xm-on] [data-xm-tabs] nav,
+html[data-xm-on] [data-xm-tabs] nav > div {
+  width: 100% !important;
+  max-width: none !important;
+}
+
+html[data-xm-on] [data-xm-tabs] :is([data-testid="ScrollSnap-prevButtonWrapper"], [data-testid="ScrollSnap-nextButtonWrapper"]) {
+  display: none !important;
+}
+
+html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-SwipeableList"] {
+  overflow: visible !important;
+  width: 100% !important;
+}
+
+html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-List"] {
+  flex-direction: column !important;
+  overflow: visible !important;
+  transform: none !important;
+  width: 100% !important;
+}
+
+html[data-xm-on] [data-xm-tabs] [data-testid="ScrollSnap-List"] > [role="presentation"] {
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+/* Room under the X logo for the list icon. */
+html[data-xm-on] header[role="banner"] h1 {
+  margin-bottom: 46px !important;
+}
+
+/* That room comes out of the nav items, so the rail still fits a short window. */
+html[data-xm-on] header[role="banner"] nav :is(a, button) > div {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+/* ---- Rail controls. -------------------------------------------------------- */
+
+#xm-tabs-btn,
+#xm-nav-btn {
+  display: none;
+  position: fixed;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--xm-fg, rgb(231 233 234));
+  background: transparent;
+}
+
+html[data-xm-on] #xm-tabs-btn,
+html[data-xm-on][data-xm-nav-can] #xm-nav-btn {
+  display: flex;
+}
+
+#xm-tabs-btn {
+  top: var(--xm-slot-top, 56px);
+  left: var(--xm-slot-left, 14px);
+  width: 44px;
+  height: 44px;
+}
+
+#xm-tabs-btn:hover,
+html[data-xm-tabs-open] #xm-tabs-btn {
+  background: color-mix(in srgb, var(--xm-fg, #fff) 10%, transparent);
+}
+
+#xm-tabs-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* A small handle on the rail's edge. */
+#xm-nav-btn {
+  top: 18px;
+  left: calc(var(--xm-rail, 72px) - 11px);
+  width: 22px;
+  height: 22px;
+  z-index: 1;
+  background: var(--xm-bg, #000);
+  box-shadow: 0 0 0 1px var(--xm-stroke, rgb(47 51 54));
+  opacity: 0.75;
+}
+
+#xm-nav-btn:hover {
+  opacity: 1;
+}
+
+#xm-nav-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-xm-nav="open"] #xm-nav-btn svg {
+  transform: rotate(180deg);
+}
+
 /* ---- Left nav: an icon rail. ---------------------------------------------- */
 
-html[data-xm-on] header[role="banner"] {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] {
   flex: 0 0 72px !important;
   width: 72px !important;
   min-width: 72px !important;
@@ -42,16 +184,16 @@ html[data-xm-on] header[role="banner"] {
   border-right: 1px solid var(--xm-stroke, rgb(47 51 54)) !important;
 }
 
-html[data-xm-on] header[role="banner"] > div {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] > div {
   width: 72px !important;
   margin-left: 0 !important;
 }
 
-html[data-xm-on] header[role="banner"] > div > div {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] > div > div {
   width: 71px !important;
 }
 
-html[data-xm-on] header[role="banner"] > div > div > div {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] > div > div > div {
   width: 71px !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
@@ -59,25 +201,25 @@ html[data-xm-on] header[role="banner"] > div > div > div {
 }
 
 /* X's inner wrappers keep 259px widths that would sit invisibly over column 0. */
-html[data-xm-on] header[role="banner"] :is(div, nav) {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] :is(div, nav) {
   max-width: 71px !important;
 }
 
-html[data-xm-on] header[role="banner"] nav {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] nav {
   align-items: center !important;
 }
 
-html[data-xm-on] header[role="banner"] nav :is(a, button) {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] nav :is(a, button) {
   width: fit-content !important;
 }
 
 /* The label next to each nav icon. */
-html[data-xm-on] header[role="banner"] nav :is(a, button) > div > div:nth-child(2) {
+html[data-xm-on]:not([data-xm-nav="open"]) header[role="banner"] nav :is(a, button) > div > div:nth-child(2) {
   display: none !important;
 }
 
 /* Account button: avatar only. */
-html[data-xm-on] [data-testid="SideNav_AccountSwitcher_Button"] {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_AccountSwitcher_Button"] {
   width: 48px !important;
   height: 48px !important;
   min-width: 0 !important;
@@ -86,26 +228,26 @@ html[data-xm-on] [data-testid="SideNav_AccountSwitcher_Button"] {
   justify-content: center !important;
 }
 
-html[data-xm-on] [data-testid="SideNav_AccountSwitcher_Button"] > div:nth-child(n + 2) {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_AccountSwitcher_Button"] > div:nth-child(n + 2) {
   display: none !important;
 }
 
 /* Post button: a round "+". */
-html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_NewTweet_Button"] {
   width: 48px !important;
   min-width: 48px !important;
   padding: 0 !important;
 }
 
-html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] span {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_NewTweet_Button"] span {
   font-size: 0 !important;
 }
 
-html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] > div {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_NewTweet_Button"] > div {
   position: relative;
 }
 
-html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] > div::after {
+html[data-xm-on]:not([data-xm-nav="open"]) [data-testid="SideNav_NewTweet_Button"] > div::after {
   content: "+";
   position: absolute;
   inset: 0;
@@ -115,6 +257,26 @@ html[data-xm-on] [data-testid="SideNav_NewTweet_Button"] > div::after {
   font-size: 28px;
   line-height: 1;
   color: inherit;
+}
+
+/* ---- Left nav, expanded: X's own labels, without its centring margin. ------ */
+
+html[data-xm-on][data-xm-nav="open"] header[role="banner"] {
+  flex: 0 0 260px !important;
+  width: 260px !important;
+  min-width: 260px !important;
+  align-items: flex-start !important;
+  box-sizing: border-box !important;
+  border-right: 1px solid var(--xm-stroke, rgb(47 51 54)) !important;
+}
+
+html[data-xm-on][data-xm-nav="open"] header[role="banner"] > div {
+  width: 260px !important;
+  margin-left: 0 !important;
+}
+
+html[data-xm-on][data-xm-nav="open"] header[role="banner"] > div > div {
+  width: 259px !important;
 }
 
 /* ---- The board. ----------------------------------------------------------- */
@@ -150,11 +312,25 @@ html[data-xm-on] [data-xm-board] > [data-testid="cellInnerDiv"]:not([data-xm-pla
 html[data-xm-on] [data-xm-board] > [data-xm-join~="prev"] {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
+  box-shadow:
+    inset 1px 0 0 var(--xm-stroke, rgb(47 51 54)),
+    inset -1px 0 0 var(--xm-stroke, rgb(47 51 54)),
+    inset 0 -1px 0 var(--xm-stroke, rgb(47 51 54));
 }
 
 html[data-xm-on] [data-xm-board] > [data-xm-join~="next"] {
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+  box-shadow:
+    inset 1px 0 0 var(--xm-stroke, rgb(47 51 54)),
+    inset -1px 0 0 var(--xm-stroke, rgb(47 51 54)),
+    inset 0 1px 0 var(--xm-stroke, rgb(47 51 54));
+}
+
+html[data-xm-on] [data-xm-board] > [data-xm-join~="prev"][data-xm-join~="next"] {
+  box-shadow:
+    inset 1px 0 0 var(--xm-stroke, rgb(47 51 54)),
+    inset -1px 0 0 var(--xm-stroke, rgb(47 51 54));
 }
 
 /* X's divider between rows would be a stray line along the card's bottom edge. */

@@ -13,6 +13,10 @@ masonry that fills the window. Every other page stays as X renders it.
   Below a 900px window, X's own layout stays.
 - `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. The choice is
   stored in `localStorage` under `xm-cols`.
+- Timelines (For you, Following, pinned lists): hover the list icon under the X logo.
+- The small handle on the rail's edge expands and collapses the sidebar. X only
+  draws labels in windows about 1265px or wider, so narrower ones have no handle.
+- The post box is gone from the timeline. The rail's + button opens the composer.
 
 ## How it works
 

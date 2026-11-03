@@ -31,6 +31,8 @@
   const FILL_SCREENS = 2.5; // new cards are placed ahead of the view by this many screens
   const ATTACH_TIMEOUT = 8000; // ms on /home without a list before giving up
   const COLS_KEY = "xm-cols";
+  const NAV_KEY = "xm-nav";
+  const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
   const CONVERSATION = /^impressionPlaceholder-home-conversation-(\d+)$/;
@@ -54,6 +56,10 @@
   let quietFrames = 0;
   let frameCount = 0;
   let lastPath = "";
+  let navOpen = localStorage.getItem(NAV_KEY) === "open";
+  let tabsBtn = null;
+  let navBtn = null;
+  let tabsCloseTimer = 0;
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -346,7 +352,7 @@
   function anchorAt(b, viewTop) {
     if (b.dirty) relayout(b);
     for (const id of b.order) {
-      if (b.placed.has(id) && b.tops.get(id) >= viewTop) return { id, offset: b.tops.get(id) - viewTop, frames: 30 };
+      if (b.placed.has(id) && b.tops.get(id) >= viewTop) return { id, offset: b.tops.get(id) - viewTop, frames: 90 };
     }
     return null;
   }
@@ -530,6 +536,98 @@
     }
   }
 
+  // ---- rail controls and tabs ---------------------------------------------
+
+  const ICON_LIST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><path d="M3.8 6h.01M3.8 12h.01M3.8 18h.01" stroke-width="2.6"/></svg>';
+  const ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+
+  function setTabsOpen(open) {
+    clearTimeout(tabsCloseTimer);
+    if (open) root.setAttribute("data-xm-tabs-open", "");
+    else root.removeAttribute("data-xm-tabs-open");
+  }
+
+  function makeButton(id, label, icon) {
+    const b = document.createElement("button");
+    b.id = id;
+    b.type = "button";
+    b.setAttribute("aria-label", label);
+    b.innerHTML = icon;
+    return b;
+  }
+
+  function placeControls(pc) {
+    const header = document.querySelector('header[role="banner"]');
+    const logo = header && header.querySelector("h1");
+    if (!logo) return;
+    // X's rail has no slot for these, so they go at the end of its header and
+    // are positioned from the logo. They sit under X's dialogs that way.
+    if (!tabsBtn) {
+      tabsBtn = makeButton("xm-tabs-btn", "Timelines", ICON_LIST);
+      tabsBtn.addEventListener("click", () => setTabsOpen(!root.hasAttribute("data-xm-tabs-open")));
+      navBtn = makeButton("xm-nav-btn", "Expand or collapse the sidebar", ICON_CHEVRON);
+      navBtn.addEventListener("click", () => {
+        navOpen = !navOpen;
+        if (navOpen) localStorage.setItem(NAV_KEY, "open");
+        else localStorage.removeItem(NAV_KEY);
+        quietFrames = 0;
+      });
+    }
+    if (tabsBtn.parentElement !== header) header.append(tabsBtn, navBtn);
+
+    // Below about 1265px X draws its rail without labels, so there is nothing to expand to.
+    const canExpand = !!header.querySelector("nav a span");
+    toggleAttr("data-xm-nav-can", canExpand);
+    setAttr("data-xm-nav", navOpen && canExpand ? "open" : null);
+
+    const r = logo.getBoundingClientRect();
+    setVar("--xm-rail", header.offsetWidth + "px");
+    setVar("--xm-slot-top", Math.round(r.bottom) + "px");
+    setVar("--xm-slot-left", Math.round(r.left + r.width / 2 - 22) + "px");
+
+    // The tab bar only moves if its parts are where they were expected. Otherwise it stays on top.
+    const list = pc.querySelector('[role="tablist"]');
+    const nav = list && list.closest("nav");
+    const box = nav && nav.parentElement && nav.parentElement.parentElement;
+    const bar = pc.firstElementChild && pc.firstElementChild.firstElementChild;
+    if (box && bar && bar.contains(box) && bar !== box) {
+      if (!bar.hasAttribute("data-xm-tabbar")) bar.setAttribute("data-xm-tabbar", "");
+      if (!box.hasAttribute("data-xm-tabs")) box.setAttribute("data-xm-tabs", "");
+      const selected = list.querySelector('[role="tab"][aria-selected="true"]');
+      const name = selected ? selected.innerText.trim() : "";
+      if (tabsBtn.title !== name) tabsBtn.title = name;
+    }
+  }
+
+  // Hovering the icon or the list keeps it open. This listens on the document
+  // because X re-renders the tabs.
+  addEventListener(
+    "pointerover",
+    (e) => {
+      if (e.pointerType === "touch" || !e.target.closest) return;
+      if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) {
+        setTabsOpen(true);
+      } else if (root.hasAttribute("data-xm-tabs-open")) {
+        clearTimeout(tabsCloseTimer);
+        tabsCloseTimer = setTimeout(() => setTabsOpen(false), TABS_CLOSE_DELAY);
+      }
+    },
+    { capture: true, passive: true },
+  );
+
+  function toggleAttr(name, on) {
+    if (on && !root.hasAttribute(name)) root.setAttribute(name, "");
+    else if (!on && root.hasAttribute(name)) root.removeAttribute(name);
+  }
+
+  function setAttr(name, value) {
+    if (value === null) {
+      if (root.hasAttribute(name)) root.removeAttribute(name);
+    } else if (root.getAttribute(name) !== value) {
+      root.setAttribute(name, value);
+    }
+  }
+
   function setVar(name, value) {
     if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
   }
@@ -546,6 +644,7 @@
     if (!want) {
       if (current) detach();
       if (root.hasAttribute("data-xm-on")) root.removeAttribute("data-xm-on");
+      if (root.hasAttribute("data-xm-tabs-open")) setTabsOpen(false);
       return;
     }
     if (!root.hasAttribute("data-xm-on")) root.setAttribute("data-xm-on", "");
@@ -571,6 +670,7 @@
     if (b.lastOut !== c.S.props.list) c.S.props.list = arrange(b, c.S.props.list);
 
     const pc = c.el.closest('[data-testid="primaryColumn"]');
+    placeControls(pc);
     const width = pc.getBoundingClientRect().width;
     const cols = pickColumns(width);
     const colw = Math.floor((width - 2 * PAD - (cols - 1) * GAP) / cols);
@@ -586,6 +686,9 @@
     if (now - themeAt > 2000) {
       themeAt = now;
       setVar("--xm-stroke", getComputedStyle(pc).borderLeftColor);
+      const body = getComputedStyle(document.body);
+      setVar("--xm-bg", body.backgroundColor);
+      setVar("--xm-fg", body.color);
     }
 
     const yBefore = b.y;
