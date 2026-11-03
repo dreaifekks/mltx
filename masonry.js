@@ -61,6 +61,7 @@
   let tabsBtn = null;
   let navBtn = null;
   let tabsCloseTimer = 0;
+  let tabsClicked = false; // something inside the list was clicked, so a popup may be its own
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -446,11 +447,14 @@
       const h = cell.offsetHeight;
       const seen = b.seen.get(id);
       if (seen && seen.h === h) seen.frames++;
-      else b.seen.set(id, { h, frames: 0, since: performance.now() });
+      else b.seen.set(id, { h, frames: 0 });
+      // Kept on the node: a remounted card is a new node and starts counting again.
+      if (h > 1) delete cell.__xmEmptySince;
+      else if (!cell.__xmEmptySince) cell.__xmEmptySince = performance.now();
       if (b.placed.has(id)) {
         // A remounted card starts out short for a moment; only believe a settled height.
         // Empty needs longer, but it's real: an ad blocker can hide a card after it's placed.
-        const settled = seen && seen.h === h && (h <= 1 ? performance.now() - seen.since >= VANISH_MS : seen.frames >= SETTLE_FRAMES);
+        const settled = seen && seen.h === h && (h <= 1 ? performance.now() - cell.__xmEmptySince >= VANISH_MS : seen.frames >= SETTLE_FRAMES);
         if (settled && b.heights.get(id) !== h) {
           b.heights.set(id, h);
           b.dirty = true;
@@ -551,8 +555,12 @@
   function setTabsOpen(open) {
     clearTimeout(tabsCloseTimer);
     tabsCloseTimer = 0;
-    if (open) root.setAttribute("data-xm-tabs-open", "");
-    else root.removeAttribute("data-xm-tabs-open");
+    if (open) {
+      root.setAttribute("data-xm-tabs-open", "");
+    } else {
+      root.removeAttribute("data-xm-tabs-open");
+      tabsClicked = false;
+    }
   }
 
   function makeButton(id, label, icon) {
@@ -614,7 +622,9 @@
     if (tabsCloseTimer || !root.hasAttribute("data-xm-tabs-open")) return;
     tabsCloseTimer = setTimeout(() => {
       tabsCloseTimer = 0;
-      if (!document.querySelector('[role="menu"], [role="dialog"]')) setTabsOpen(false);
+      // A popup opened from the list keeps it open; look again once that closes.
+      if (tabsClicked && document.querySelector('[role="menu"], [role="dialog"]')) scheduleTabsClose();
+      else setTabsOpen(false);
     }, TABS_CLOSE_DELAY);
   }
 
@@ -624,6 +634,13 @@
       if (e.pointerType === "touch" || !e.target.closest) return;
       if (e.target.closest("#xm-tabs-btn, [data-xm-tabs]")) setTabsOpen(true);
       else scheduleTabsClose();
+    },
+    { capture: true, passive: true },
+  );
+  addEventListener(
+    "click",
+    (e) => {
+      if (e.target.closest && e.target.closest("[data-xm-tabs]")) tabsClicked = true;
     },
     { capture: true, passive: true },
   );
