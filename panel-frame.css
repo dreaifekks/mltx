@@ -48,7 +48,7 @@ html[data-xm-post] main :has(> [data-testid="primaryColumn"]) {
   max-width: none !important;
 }
 
-/* The post: its own pane and its own scrolling. Short posts sit in the middle of it. */
+/* The post: its own pane and its own scrolling, starting at the top. */
 html[data-xm-post] [data-xm-focal] {
   position: fixed !important;
   top: 0 !important;
@@ -64,7 +64,7 @@ html[data-xm-post] [data-xm-focal] {
   overflow-y: auto;
   display: flex !important;
   flex-direction: column;
-  justify-content: safe center;
+  justify-content: flex-start;
   box-sizing: border-box;
   padding: 16px 12px;
   background: var(--xm-canvas, Canvas);
