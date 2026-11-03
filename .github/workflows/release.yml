@@ -1,0 +1,140 @@
+name: Release
+
+# 推送 v版本号 标签时打包并发布 GitHub Release，例如 v0.3.0，要和 manifest.json 的版本一致。
+# 手动运行只打包，产物在这次运行的 Artifacts 里，不会发布。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-chrome-firefox:
+    name: Build Chrome and Firefox
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Check tag
+        if: github.ref_type == 'tag'
+        run: |
+          version="$(node -p "require('./manifest.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 应该是 v$version，和 manifest.json 的版本一致"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Build and zip
+        run: npm run package
+
+      - name: Test the Chrome build
+        run: npm test
+        env:
+          EXT_DIR: dist/chrome
+
+      - name: Lint the Firefox build
+        run: npx --yes web-ext@8 lint --source-dir dist/firefox
+
+      - name: Keep only Chrome and Firefox
+        run: rm -f packages/*-safari.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chrome-firefox
+          path: packages/*
+          if-no-files-found: error
+
+  build-safari:
+    name: Build Safari
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      # 只放是否配置的标记，密钥只传给下面用到它的两个步骤
+      HAS_APPLE_SIGNING: ${{ secrets.MACOS_SIGNING_P12 != '' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Build and zip
+        run: |
+          npm run package
+          rm -f packages/*-chrome.zip packages/*-firefox.zip
+
+      - name: Import signing certificate
+        if: env.HAS_APPLE_SIGNING == 'true'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$MACOS_SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_SIGNING_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+      - name: Warn about missing signing
+        if: env.HAS_APPLE_SIGNING != 'true'
+        run: echo "::warning::没有配置 Apple 签名，Safari 的 dmg 只做 ad-hoc 签名"
+
+      - name: Package dmg
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          label="${RELEASE_TAG#v}"
+          label="${label:-$(node -p "require('./manifest.json').version")}"
+          scripts/package-safari.sh "packages/mltx-$label-safari.dmg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: safari
+          path: packages/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: [build-chrome-firefox, build-safari]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" packages/* --verify-tag --generate-notes --latest

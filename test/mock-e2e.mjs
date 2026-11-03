@@ -1,8 +1,8 @@
 // End-to-end check of the extension against a fake x.com, with a real pointer.
 // A throwaway Chromium loads the unpacked extension; a local HTTPS server answers as
 // x.com (and as a third party) and sends X-Frame-Options: DENY like the real site.
-//   npm i --ignore-scripts playwright-core   (anywhere on NODE_PATH)
-//   node test/mock-e2e.mjs
+//   npm test                 tests this directory as it is
+//   EXT_DIR=dist/chrome npm test   tests a build
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -14,7 +14,7 @@ const require = createRequire(process.env.PW_FROM || path.join(process.cwd(), "/
 const { chromium } = require("playwright-core");
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xm-e2e-"));
-const ext = new URL("..", import.meta.url).pathname;
+const ext = process.env.EXT_DIR ? path.resolve(process.env.EXT_DIR) : new URL("..", import.meta.url).pathname;
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", dir + "/k.pem", "-out", dir + "/c.pem", "-days", "1", "-subj", "/CN=x.com"], { stdio: "ignore" });
 
 const NAV = [["/home", "Home", "主页"], ["/notifications", "Notifications", "通知"], ["/i/chat", "Chat", "聊天"], ["/i/bookmarks", "Bookmarks", "书签"], ["/inkks", "Profile", "资料"]];

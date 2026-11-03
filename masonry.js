@@ -895,12 +895,17 @@
     }
   }
 
+  const setIcon = (button, svg) => {
+    const icon = new DOMParser().parseFromString(svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" '), "image/svg+xml").documentElement;
+    button.replaceChildren(document.importNode(icon, true));
+  };
+
   function makeButton(id, label, icon) {
     const b = document.createElement("button");
     b.id = id;
     b.type = "button";
     b.setAttribute("aria-label", label);
-    b.innerHTML = icon;
+    if (icon) setIcon(b, icon);
     return b;
   }
 
@@ -988,7 +993,7 @@
     if (flowBtn.title !== label) {
       flowBtn.title = label;
       flowBtn.setAttribute("aria-label", label);
-      flowBtn.innerHTML = flowSideways ? ICON_FLOW_V : ICON_FLOW_H;
+      setIcon(flowBtn, flowSideways ? ICON_FLOW_V : ICON_FLOW_H);
     }
     const twin = home && [...home.querySelectorAll("button")].find((e) => e !== flowBtn);
     if (!twin) return;
