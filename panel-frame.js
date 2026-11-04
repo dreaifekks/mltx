@@ -58,6 +58,49 @@ if (window !== window.top) {
       });
   }
 
+  // X takes its theme from the night_mode cookie, or failing that the system's setting.
+  // The page belongs to the feed behind it, so both give the feed's theme here. Returns
+  // the feed's background, or nothing if the feed has no theme yet.
+  function followFeedTheme() {
+    const feed = window.top.document;
+    const scheme = feed.documentElement.style.colorScheme;
+    if (scheme !== "dark" && scheme !== "light") return "";
+
+    const cookie = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
+    let shown = scheme === "dark" ? "2" : "0";
+    Object.defineProperty(document, "cookie", {
+      configurable: true,
+      get() {
+        const others = cookie.get.call(document).split("; ").filter((c) => c && !c.startsWith("night_mode="));
+        return [...others, `night_mode=${shown}`].join("; ");
+      },
+      // X writes back what it reads. Only a change of theme is the user's own and is kept,
+      // otherwise this would pin the theme for someone following the system's setting.
+      set(value) {
+        const written = /^\s*night_mode=(\d+)/.exec(value)?.[1];
+        if (written === shown) return;
+        if (written) shown = written;
+        cookie.set.call(document, value);
+      },
+    });
+
+    const matchMedia = window.matchMedia;
+    window.matchMedia = (query) => {
+      const list = matchMedia.call(window, query);
+      const asked = /^\(\s*prefers-color-scheme:\s*(dark|light)\s*\)$/.exec(String(query).trim());
+      if (!asked) return list;
+      return new Proxy(list, {
+        get(target, key) {
+          if (key === "matches") return asked[1] === scheme;
+          const value = target[key];
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    };
+
+    return window.top.getComputedStyle(feed.body).backgroundColor;
+  }
+
   function writePage({ html, csp }) {
     // The post window may have been pointed at another post in the meantime.
     const pointed = location.pathname === WRITTEN_ENTRY ? sameSiteAddress(target) || X_ENTRY : location.pathname + location.search + location.hash;
@@ -67,13 +110,17 @@ if (window !== window.top) {
     const rest = html.slice(opening.length);
     const meta = csp ? `<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
     const hasHead = /<head\b[^>]*>/i.test(rest);
+    const background = followFeedTheme();
+    let page = hasHead ? rest.replace(/<head\b[^>]*>/i, (head) => head + meta) : meta + rest;
+    if (background) page = page.replace(/(<body\b[^>]*style="background-color:\s*)[^;"]*/i, (_, start) => start + background);
 
     // Opening a document clears the window's listeners, and the page's first script
     // runs during the write, so the frame is set up between the two.
     document.open();
     document.write(opening || "<!doctype html><html>");
     startFrame();
-    document.write(hasHead ? rest.replace(/<head\b[^>]*>/i, (head) => head + meta) : meta + rest);
+    if (background) document.documentElement.style.backgroundColor = background;
+    document.write(page);
     document.close();
   }
 

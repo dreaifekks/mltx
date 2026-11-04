@@ -206,6 +206,45 @@ await railLink("Notifications").click();
 await p.waitForTimeout(200);
 check("clicking the active icon closes it", !(await panelState()).open);
 if (SAFARI) {
+  const framedTheme = (scheme) => p.evaluate(async ({ scheme, entry }) => {
+    document.documentElement.style.colorScheme = scheme;
+    const f = document.createElement("iframe");
+    f.src = entry + "?xm-panel=" + encodeURIComponent("/themed");
+    document.body.append(f);
+    await new Promise((r) => setTimeout(r, 500));
+    const w = f.contentWindow, d = f.contentDocument;
+    d.cookie = "xm_probe=1; path=/";
+    const out = { dark: w.matchMedia("(prefers-color-scheme: dark)").matches, light: w.matchMedia("( prefers-color-scheme: light )").matches, other: w.matchMedia("(min-width: 1px)").matches, cookie: d.cookie, topCookie: document.cookie, bg: d.documentElement.style.backgroundColor, topBg: getComputedStyle(document.body).backgroundColor };
+    f.remove();
+    document.documentElement.style.colorScheme = "";
+    return out;
+  }, { scheme, entry: ENTRY });
+  const dark = await framedTheme("dark");
+  check("a written page takes the feed's dark theme", dark.dark && !dark.light && dark.other && dark.cookie.includes("night_mode=2") && dark.bg === dark.topBg && !dark.topCookie.includes("night_mode"), dark);
+  const light = await framedTheme("light");
+  check("and its light theme", !light.dark && light.light && light.cookie.includes("night_mode=0"), light);
+  const written = await p.evaluate(async (entry) => {
+    document.documentElement.style.colorScheme = "dark";
+    const f = document.createElement("iframe");
+    f.src = entry + "?xm-panel=" + encodeURIComponent("/themed");
+    document.body.append(f);
+    await new Promise((r) => setTimeout(r, 500));
+    const d = f.contentDocument;
+    d.cookie = "night_mode=2; path=/";
+    await new Promise((r) => setTimeout(r, 150));
+    const repeated = document.cookie;
+    d.cookie = "night_mode=0; path=/";
+    await new Promise((r) => setTimeout(r, 150)); // another frame's write reaches this one a little later
+    const out = { repeated, changed: document.cookie, frame: d.cookie };
+    f.remove();
+    document.cookie = "night_mode=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    document.documentElement.style.colorScheme = "";
+    return out;
+  }, ENTRY);
+  check("X repeating the theme doesn't pin it, a real change is kept", !written.repeated.includes("night_mode") && written.changed.includes("night_mode=0") && written.frame.includes("night_mode=0") && !written.frame.includes("night_mode=2"), written);
+  check("the frame's own cookies still reach the site", dark.cookie.includes("xm_probe=1") && dark.topCookie.includes("xm_probe=1"), dark.topCookie);
+}
+if (SAFARI) {
   entryFails = true;
   const failedFrom = hits.length;
   await railLink("Bookmarks").click();
