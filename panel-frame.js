@@ -6,58 +6,119 @@
 // Here the frame's router gets a private stack instead: its own back arrow still works,
 // and the browser's back button belongs to the feed.
 if (window !== window.top) {
-  document.documentElement.setAttribute("data-xm-panel", "");
-
-  const history = window.history;
   const replace = History.prototype.replaceState;
 
   // The panel loads every page through a route X's service worker leaves alone, and
   // the address changes to the real page here, before X reads it. See PANEL_ENTRY in
   // masonry.js.
-  const ENTRY = "/i/history"; // PANEL_ENTRY in masonry.js
+  const X_ENTRY = "/i/history";
+  const WRITTEN_ENTRY = "/robots.txt";
+  const ENTRY = navigator.vendor.startsWith("Apple") ? WRITTEN_ENTRY : X_ENTRY; // PANEL_ENTRY in masonry.js
   const target = new URLSearchParams(location.search).get("xm-panel");
-  if (target) {
+
+  // Null unless it's an address on this site.
+  const sameSiteAddress = (href) => {
     try {
-      const url = new URL(target, location.origin);
-      if (url.origin === location.origin) replace.call(history, null, "", url.pathname + url.search + url.hash);
+      const url = new URL(href, location.origin);
+      return url.origin === location.origin ? url.pathname + url.search + url.hash : null;
     } catch {
-      // Not a usable address: stay on the entry page.
+      return null;
     }
+  };
+
+  // Every frame above this one is x.com. X-Frame-Options keeps other sites from framing
+  // X's pages, and robots.txt doesn't send it, so another site could frame the entry.
+  const framedByThisSite = () => {
+    try {
+      for (let w = window; w !== window.top; w = w.parent) {
+        if (w.parent.location.origin !== location.origin) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Safari keeps X-Frame-Options whatever frame-rules.json says, so X's pages can't load
+  // in a frame there. robots.txt can, and fetch isn't subject to the header, so X's page
+  // is fetched and written into this document. The header's CSP goes along as a meta tag,
+  // so X's nonces still apply and the page keeps its own limits.
+  function writeEntryPage(triesLeft = 3) {
+    document.documentElement.setAttribute("data-xm-panel", "");
+    document.documentElement.style.display = "none"; // not the text of robots.txt
+    fetch(X_ENTRY, { credentials: "same-origin" })
+      .then(async (response) => {
+        const html = await response.text();
+        // The post window may have been pointed at another post in the meantime.
+        const pointed = location.pathname === WRITTEN_ENTRY ? sameSiteAddress(target) || X_ENTRY : location.pathname + location.search + location.hash;
+        replace.call(history, null, "", pointed);
+
+        const opening = /^[\s\S]*?<html\b[^>]*>/i.exec(html)?.[0] || "";
+        const rest = html.slice(opening.length);
+        const csp = response.headers.get("content-security-policy");
+        const meta = csp ? `<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
+        const hasHead = /<head\b[^>]*>/i.test(rest);
+
+        // Opening a document clears the window's listeners, and the page's first script
+        // runs during the write, so the frame is set up between the two.
+        document.open();
+        document.write(opening || "<!doctype html><html>");
+        startFrame();
+        document.write(hasHead ? rest.replace(/<head\b[^>]*>/i, (head) => head + meta) : meta + rest);
+        document.close();
+      })
+      .catch(() => {
+        if (triesLeft > 1) setTimeout(() => writeEntryPage(triesLeft - 1), 2000);
+      });
   }
-  const behind = []; // entries before the current one
 
-  history.pushState = (state, title, url) => {
-    const entry = { state: history.state, url: location.href };
-    replace.call(history, state, title, url); // throws on a bad state or URL, like the original
-    behind.push(entry);
-  };
+  if (location.pathname === WRITTEN_ENTRY && target && framedByThisSite()) writeEntryPage();
+  else startFrame();
 
-  // Asynchronous as a whole, like a real traversal, so several in a row stay in order
-  // and the event always matches the current location.
-  const go = (delta = 0) => {
-    const n = Math.trunc(Number(delta)) || 0;
-    // A plain reload would hit the service worker again.
-    if (n === 0) return location.replace(`${ENTRY}?xm-panel=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
-    setTimeout(() => {
-      if (n > 0 || -n > behind.length) return;
-      const entry = behind.splice(n)[0];
-      replace.call(history, entry.state, "", entry.url);
-      dispatchEvent(new PopStateEvent("popstate", { state: entry.state }));
-    });
-  };
+  function startFrame() {
+    document.documentElement.setAttribute("data-xm-panel", "");
 
-  history.go = go;
-  history.back = () => go(-1);
-  history.forward = () => {};
+    const history = window.history;
 
-  // Esc closes the panel or post view, unless X has a dialog of its own open in here.
-  addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !document.querySelector('[role="dialog"]')) {
-      window.top.postMessage({ xm: "close" }, location.origin);
+    if (location.pathname === X_ENTRY && target) {
+      const address = sameSiteAddress(target);
+      if (address) replace.call(history, null, "", address); // otherwise stay on the entry page
     }
-  });
+    const behind = []; // entries before the current one
 
-  if (window.name === "xm-post") startPostView();
+    history.pushState = (state, title, url) => {
+      const entry = { state: history.state, url: location.href };
+      replace.call(history, state, title, url); // throws on a bad state or URL, like the original
+      behind.push(entry);
+    };
+
+    // Asynchronous as a whole, like a real traversal, so several in a row stay in order
+    // and the event always matches the current location.
+    const go = (delta = 0) => {
+      const n = Math.trunc(Number(delta)) || 0;
+      // A plain reload would hit the service worker again.
+      if (n === 0) return location.replace(`${ENTRY}?xm-panel=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
+      setTimeout(() => {
+        if (n > 0 || -n > behind.length) return;
+        const entry = behind.splice(n)[0];
+        replace.call(history, entry.state, "", entry.url);
+        dispatchEvent(new PopStateEvent("popstate", { state: entry.state }));
+      });
+    };
+
+    history.go = go;
+    history.back = () => go(-1);
+    history.forward = () => {};
+
+    // Esc closes the panel or post view, unless X has a dialog of its own open in here.
+    addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !document.querySelector('[role="dialog"]')) {
+        window.top.postMessage({ xm: "close" }, location.origin);
+      }
+    });
+
+    if (window.name === "xm-post") startPostView();
+  }
 }
 
 // ---- post view -----------------------------------------------------------------------

@@ -14,7 +14,25 @@ const require = createRequire(process.env.PW_FROM || path.join(process.cwd(), "/
 const { chromium } = require("playwright-core");
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "xm-e2e-"));
-const ext = process.env.EXT_DIR ? path.resolve(process.env.EXT_DIR) : new URL("..", import.meta.url).pathname;
+const built = process.env.EXT_DIR ? path.resolve(process.env.EXT_DIR) : new URL("..", import.meta.url).pathname;
+// XM_SAFARI=1 acts like Safari in Chromium: frame-rules.json has no effect, so X-Frame-Options
+// really refuses X's pages, and the scripts take the route they take on Safari.
+const SAFARI = !!process.env.XM_SAFARI;
+const ENTRY = SAFARI ? "/robots.txt" : "/i/history";
+let ext = built;
+if (SAFARI) {
+  ext = dir + "/ext";
+  fs.mkdirSync(ext);
+  for (const name of ["icons", "frame-rules.json", "masonry.css", "panel-frame.css"]) fs.cpSync(path.join(built, name), path.join(ext, name), { recursive: true });
+  for (const name of ["masonry.js", "panel-frame.js"]) {
+    const source = fs.readFileSync(path.join(built, name), "utf8");
+    if (!source.includes('navigator.vendor.startsWith("Apple")')) throw new Error("no browser check in " + name);
+    fs.writeFileSync(path.join(ext, name), source.replaceAll('navigator.vendor.startsWith("Apple")', "true"));
+  }
+  const manifest = JSON.parse(fs.readFileSync(path.join(built, "manifest.json"), "utf8"));
+  delete manifest.declarative_net_request;
+  fs.writeFileSync(path.join(ext, "manifest.json"), JSON.stringify(manifest));
+}
 execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", dir + "/k.pem", "-out", dir + "/c.pem", "-days", "1", "-subj", "/CN=x.com"], { stdio: "ignore" });
 
 const NAV = [["/home", "Home", "主页"], ["/notifications", "Notifications", "通知"], ["/i/chat", "Chat", "聊天"], ["/i/bookmarks", "Bookmarks", "书签"], ["/inkks", "Profile", "资料"]];
@@ -46,7 +64,7 @@ const content=document.getElementById("content");content.prepend(document.create
 const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{}};window.scroller=S;
 const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.exec(location.pathname);if(!m)return;const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML='<article data-testid="tweet" style="height:300px">post '+m[1]+'<div role="group"><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>';root.append(c);S._cells.set("tweet-"+m[1],{getElement:()=>c})};render();addEventListener("popstate",render);
 </script>`);
-const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe>`;
+const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe><iframe id="g" src="https://x.com/robots.txt?xm-panel=%2Fnotifications"></iframe>`;
 
 const hits = [];
 const server = https.createServer({ key: fs.readFileSync(dir + "/k.pem"), cert: fs.readFileSync(dir + "/c.pem") }, (req, res) => {
@@ -55,8 +73,9 @@ const server = https.createServer({ key: fs.readFileSync(dir + "/k.pem"), cert: 
   if (host !== "x.com") return res.writeHead(200, { "content-type": "text/html" }).end(third);
   hits.push(url);
   if (url === "/favicon.ico") return res.writeHead(204).end();
+  if (url === "/robots.txt") return res.writeHead(200, { "content-type": "text/plain;charset=utf-8" }).end("User-agent: *\nDisallow: /");
   if (url === "/sw.js") return res.writeHead(200, { "content-type": "text/javascript" }).end(SW);
-  res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY" });
+  res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY", ...(url === "/i/history" ? { "content-security-policy": "object-src 'none'; img-src \"x\" *" } : {}) });
   res.end(url === "/home" ? home : inner(url));
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -149,7 +168,11 @@ let s = await panelState();
 check("a rail link opens the panel and the page stays on /home", s.open && s.path === "/home" && s.src === "/notifications" && s.rect[0] === 72 && s.rect[1] === 700 && s.active, s);
 let f = frameOf("/notifications");
 const inFrame = f && (await f.evaluate(() => ({ mark: document.documentElement.hasAttribute("data-xm-panel"), header: getComputedStyle(document.querySelector("header")).display, side: getComputedStyle(document.querySelector('[data-testid="sidebarColumn"]')).display, inFrame: window.__topOk, masonry: window.__xMasonry === undefined })));
-check("x.com can frame itself despite X-Frame-Options: DENY", !!f, p.frames().map((x) => x.url()));
+check(SAFARI ? "the panel shows X's page through the written entry, despite X-Frame-Options: DENY" : "x.com can frame itself despite X-Frame-Options: DENY", !!f, p.frames().map((x) => x.url()));
+if (SAFARI) {
+  const csp = await f.evaluate(() => document.head.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content);
+  check("the written page keeps the policy its response came with", csp === `object-src 'none'; img-src "x" *`, csp);
+}
 check("the framed page drops X's rail and right column, and runs no masonry", inFrame && inFrame.mark && inFrame.header === "none" && inFrame.side === "none" && inFrame.masonry, inFrame);
 await f.evaluate(() => { window.scrollTo(0, 700); window.__kept = 42; });
 
@@ -170,7 +193,7 @@ await p.waitForTimeout(900);
 f = frameOf("/notifications");
 const recovered = f && (await f.evaluate(() => ({ path: location.pathname, mark: document.documentElement.hasAttribute("data-xm-panel") })).catch(() => null));
 check("a page that reloads itself recovers instead of staying refused", !!recovered && recovered.path === "/notifications" && recovered.mark && hits.filter((u) => u === "/i/history").length === 2, { recovered, frames: p.frames().map((x) => x.url()) });
-const bad = await p.evaluate(async () => { const f = document.createElement("iframe"); f.src = "/i/history?xm-panel=" + encodeURIComponent("/\\\\evil.example/p"); document.body.append(f); await new Promise((r) => setTimeout(r, 400)); const out = { path: f.contentWindow.location.pathname, host: f.contentWindow.location.host, shim: f.contentWindow.history.back.toString().includes("go(-1)") }; f.remove(); return out; });
+const bad = await p.evaluate(async (entry) => { const f = document.createElement("iframe"); f.src = entry + "?xm-panel=" + encodeURIComponent("/\\\\evil.example/p"); document.body.append(f); await new Promise((r) => setTimeout(r, 400)); const out = { path: f.contentWindow.location.pathname, host: f.contentWindow.location.host, shim: f.contentWindow.history.back.toString().includes("go(-1)") }; f.remove(); return out; }, ENTRY);
 check("a hostile address is ignored and the page still starts", bad.host === "x.com" && bad.shim, bad);
 await railLink("Notifications").click();
 await p.waitForTimeout(200);
@@ -639,9 +662,13 @@ const before3 = hits.length;
 const q = await ctx.newPage();
 await q.goto("https://third.test/");
 await q.waitForTimeout(800);
-const framed = q.frames().find((x) => x !== q.mainFrame());
+const framed = q.frames().find((x) => new URL(x.url()).pathname === "/notifications") || q.frames().find((x) => x !== q.mainFrame() && !x.url().includes("robots"));
 const frameUrl = framed ? framed.url() : null;
 check("a third-party page still can't frame x.com", frameUrl !== "https://x.com/notifications", { frameUrl, served: hits.length - before3 });
+
+const robots = q.frames().find((x) => x.url().includes("robots.txt"));
+const robotsText = robots ? await robots.evaluate(() => document.body.textContent) : null;
+check("a third-party page framing the Safari entry gets robots.txt, not X's page", /User-agent/.test(robotsText || "") && !hits.slice(before3).includes("/i/history"), { robotsText, served: hits.slice(before3) });
 
 check("no page errors", errors.length === 0, errors.slice(0, 3));
 await ctx.close();

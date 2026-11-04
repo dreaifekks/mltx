@@ -48,8 +48,9 @@
   // X's service worker answers navigations to /home, /notifications, /explore, /<user> and
   // others from a cached page that says X-Frame-Options: DENY, and that never reaches
   // frame-rules.json. It leaves this route to the network; panel-frame.js then swaps in
-  // the real address before X starts.
-  const PANEL_ENTRY = "/i/history";
+  // the real address before X starts. Safari ignores frame-rules.json, so it starts from
+  // a page without the header instead, and panel-frame.js writes X's page into it.
+  const PANEL_ENTRY = navigator.vendor.startsWith("Apple") ? "/robots.txt" : "/i/history";
   const PANEL_RETRY_MS = 5000;
   const POST_READY_TIMEOUT = 5000; // ms before showing the post window whatever state it's in
   // No allow-top-navigation, so a stray link can't send the feed away. This isn't an
@@ -1067,11 +1068,12 @@
   // A page in the panel that reloads itself goes back through the service worker and is
   // refused, which shows up as a frame we can't read. Enter again, but don't keep trying.
   function recoverFrame(frame) {
-    let readable = false;
+    let ours = false;
     try {
-      readable = !!frame.contentWindow.location.href;
+      // Chrome makes a refused frame unreadable, Safari leaves it blank.
+      ours = frame.contentDocument.documentElement.hasAttribute("data-xm-panel");
     } catch {}
-    if (readable) return;
+    if (ours) return;
     const now = performance.now();
     if (now - (frame.__xmRetriedAt || -Infinity) < PANEL_RETRY_MS) return;
     frame.__xmRetriedAt = now;

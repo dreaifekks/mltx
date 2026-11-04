@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "package": "node scripts/build.mjs --package",
-    "test": "node test/mock-e2e.mjs"
+    "test": "node test/mock-e2e.mjs && XM_SAFARI=1 node test/mock-e2e.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.50.0"
