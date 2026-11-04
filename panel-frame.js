@@ -66,7 +66,7 @@ if (window !== window.top) {
     const scheme = feed.documentElement.style.colorScheme;
     if (scheme !== "dark" && scheme !== "light") return "";
 
-    // Until X changes or clears the theme itself, which makes it the user's own choice.
+    // Until X writes another theme, which makes it the user's own choice.
     let following = true;
     const shown = scheme === "dark" ? "2" : "0";
 
@@ -78,14 +78,17 @@ if (window !== window.top) {
         if (!following) return real;
         return [...real.split("; ").filter((c) => c && !c.startsWith("night_mode=")), `night_mode=${shown}`].join("; ");
       },
-      // X writes back what it reads, which would pin the theme for someone following the
-      // system's setting. Only a plain repeat is dropped.
+      // X moves the cookie to the parent domain by clearing it and writing back what it
+      // read, which would pin the theme for someone following the system's setting. So a
+      // repeat is dropped and a clear goes through, and neither ends the following.
       set(value) {
         const written = /^\s*night_mode=([^;]*)(.*)$/.exec(value);
         if (following && written) {
           const clears = !written[1] || /;\s*max-age=\s*(0|-)/i.test(written[2]) || Date.parse(/;\s*expires=([^;]*)/i.exec(written[2])?.[1]) <= Date.now();
-          if (written[1] === shown && !clears) return;
-          following = false;
+          if (!clears) {
+            if (written[1] === shown) return;
+            following = false;
+          }
         }
         cookie.set.call(document, value);
       },

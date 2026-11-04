@@ -253,11 +253,18 @@ if (SAFARI) {
     d.cookie = "night_mode=2; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     await new Promise((r) => setTimeout(r, 150));
     const out = { top: document.cookie, frame: d.cookie };
+    // what X does when it moves the cookie to the parent domain
+    d.cookie = "night_mode=; Max-Age=0; Path=/";
+    d.cookie = "night_mode=2; Max-Age=31536000; Path=/";
+    await new Promise((r) => setTimeout(r, 150));
+    out.moved = document.cookie;
+    out.dark = f.contentWindow.matchMedia("(prefers-color-scheme: dark)").matches;
     f.remove();
     document.documentElement.style.colorScheme = "";
     return out;
   }, ENTRY);
-  check("clearing the theme, even with the same value, really clears it", !cleared.top.includes("night_mode") && !cleared.frame.includes("night_mode"), cleared);
+  check("clearing the theme, even with the same value, really clears it and the page keeps the feed's", !cleared.top.includes("night_mode") && cleared.frame.includes("night_mode=2"), cleared);
+  check("X moving the cookie doesn't pin the theme", !cleared.moved.includes("night_mode") && cleared.dark, cleared);
   check("the frame's own cookies still reach the site", dark.cookie.includes("xm_probe=1") && dark.topCookie.includes("xm_probe=1"), dark.topCookie);
 }
 if (SAFARI) {
