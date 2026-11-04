@@ -68,6 +68,8 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}${detail === "" ? "" : "  " + JSON.stringify(detail)}`);
 };
 
+// Chromium opens a link in a new tab with Cmd on macOS and Ctrl elsewhere.
+const NEW_TAB_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const ctx = await chromium.launchPersistentContext(dir + "/p", {
   headless: true,
   channel: "chromium",
@@ -215,7 +217,7 @@ await p.waitForTimeout(150);
 await railLink("Chat").click();
 await p.waitForTimeout(250);
 const pagesBefore = ctx.pages().length;
-await railLink("Home").click({ modifiers: ["Meta"] });
+await railLink("Home").click({ modifiers: [NEW_TAB_KEY] });
 await p.waitForTimeout(400);
 const cmd = { pages: ctx.pages().length - pagesBefore, open: (await panelState()).open };
 check("Cmd-click on Home opens a new tab and leaves the panel", cmd.pages === 1 && cmd.open, cmd);
@@ -443,7 +445,7 @@ await p.keyboard.press("Escape");
 await p.waitForTimeout(200);
 check("Esc closes it", !(await postState()).open);
 const newTabsBefore = ctx.pages().length;
-await p.locator('[data-xm-placed] [data-testid="tweetText"]').first().click({ modifiers: ["Meta"] });
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').first().click({ modifiers: [NEW_TAB_KEY] });
 await p.waitForTimeout(200);
 check("Cmd-click doesn't open the window", !(await postState()).open);
 for (const extra of ctx.pages().slice(newTabsBefore)) await extra.close();
