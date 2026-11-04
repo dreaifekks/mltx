@@ -9,5 +9,6 @@
   },
   "devDependencies": {
     "playwright-core": "^1.50.0"
-  }
+  },
+  "version": "0.3.1"
 }

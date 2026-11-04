@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "mltx",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Turns the x.com home timeline into a window-filling masonry, with side panels and a post window over it.",
   "icons": {
     "16": "icons/icon-16.png",
