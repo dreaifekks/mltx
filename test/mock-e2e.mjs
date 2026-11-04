@@ -67,15 +67,17 @@ const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.e
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe><iframe id="g" src="https://x.com/robots.txt?xm-panel=%2Fnotifications"></iframe>`;
 
 const hits = [];
+let entryFails = false;
 const server = https.createServer({ key: fs.readFileSync(dir + "/k.pem"), cert: fs.readFileSync(dir + "/c.pem") }, (req, res) => {
   const host = (req.headers.host || "").split(":")[0];
   const url = req.url.split("?")[0];
   if (host !== "x.com") return res.writeHead(200, { "content-type": "text/html" }).end(third);
   hits.push(url);
+  if (url === "/i/history" && entryFails) return res.writeHead(503, { "content-type": "text/html" }).end("<!doctype html><h1 id=down>down</h1>");
   if (url === "/favicon.ico") return res.writeHead(204).end();
   if (url === "/robots.txt") return res.writeHead(200, { "content-type": "text/plain;charset=utf-8" }).end("User-agent: *\nDisallow: /");
   if (url === "/sw.js") return res.writeHead(200, { "content-type": "text/javascript" }).end(SW);
-  res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY", ...(url === "/i/history" ? { "content-security-policy": "object-src 'none'; img-src \"x\" *" } : {}) });
+  res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY", ...(url === "/i/history" ? { "content-security-policy": "object-src 'none'; script-src-attr 'none'; img-src \"x\" *" } : {}) });
   res.end(url === "/home" ? home : inner(url));
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -170,8 +172,13 @@ let f = frameOf("/notifications");
 const inFrame = f && (await f.evaluate(() => ({ mark: document.documentElement.hasAttribute("data-xm-panel"), header: getComputedStyle(document.querySelector("header")).display, side: getComputedStyle(document.querySelector('[data-testid="sidebarColumn"]')).display, inFrame: window.__topOk, masonry: window.__xMasonry === undefined })));
 check(SAFARI ? "the panel shows X's page through the written entry, despite X-Frame-Options: DENY" : "x.com can frame itself despite X-Frame-Options: DENY", !!f, p.frames().map((x) => x.url()));
 if (SAFARI) {
-  const csp = await f.evaluate(() => document.head.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content);
-  check("the written page keeps the policy its response came with", csp === `object-src 'none'; img-src "x" *`, csp);
+  const csp = await f.evaluate(() => {
+    const el = document.createElement("div");
+    el.setAttribute("onclick", "window.__attrRan = true");
+    el.click();
+    return { content: document.head.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content, attrRan: !!window.__attrRan };
+  });
+  check("the written page keeps the policy its response came with, and it applies", csp.content === `object-src 'none'; script-src-attr 'none'; img-src "x" *` && !csp.attrRan, csp);
 }
 check("the framed page drops X's rail and right column, and runs no masonry", inFrame && inFrame.mark && inFrame.header === "none" && inFrame.side === "none" && inFrame.masonry, inFrame);
 await f.evaluate(() => { window.scrollTo(0, 700); window.__kept = 42; });
@@ -198,6 +205,21 @@ check("a hostile address is ignored and the page still starts", bad.host === "x.
 await railLink("Notifications").click();
 await p.waitForTimeout(200);
 check("clicking the active icon closes it", !(await panelState()).open);
+if (SAFARI) {
+  entryFails = true;
+  const failedFrom = hits.length;
+  await railLink("Bookmarks").click();
+  await p.waitForTimeout(5200);
+  const failed = await p.evaluate(() => { const d = document.querySelector("#xm-panel iframe[data-xm-shown]").contentDocument; return { down: !!d.getElementById("down"), panel: d.documentElement.hasAttribute("data-xm-panel"), entry: d.documentElement.hasAttribute("data-xm-entry") }; });
+  check("an entry that keeps failing is tried three times and isn't written in", !failed.down && !failed.panel && !failed.entry && hits.slice(failedFrom).filter((u) => u === "/i/history").length === 3, failed);
+  await railLink("Bookmarks").click(); // closes
+  entryFails = false;
+  await railLink("Bookmarks").click();
+  await p.waitForTimeout(800);
+  const back = frameOf("/i/bookmarks");
+  check("opening it again starts over and shows the page", !!back && (await back.evaluate(() => document.documentElement.hasAttribute("data-xm-panel"))), p.frames().map((x) => x.url()));
+  await railLink("Bookmarks").click();
+}
 
 // ---- the panel stays out of the tab's history --------------------------------------
 await railLink("Notifications").click();

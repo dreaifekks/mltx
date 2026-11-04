@@ -1065,15 +1065,21 @@
 
   const panelEntryUrl = (href) => `${PANEL_ENTRY}?xm-panel=${encodeURIComponent(href)}`;
 
+  // Set by panel-frame.js. Chrome makes a refused frame unreadable, Safari leaves it blank.
+  function frameIsOurs(frame) {
+    try {
+      const page = frame.contentDocument.documentElement;
+      return page.hasAttribute("data-xm-panel") || page.hasAttribute("data-xm-entry");
+    } catch {
+      return false;
+    }
+  }
+
   // A page in the panel that reloads itself goes back through the service worker and is
   // refused, which shows up as a frame we can't read. Enter again, but don't keep trying.
   function recoverFrame(frame) {
-    let ours = false;
-    try {
-      // Chrome makes a refused frame unreadable, Safari leaves it blank.
-      ours = frame.contentDocument.documentElement.hasAttribute("data-xm-panel");
-    } catch {}
-    if (ours) return;
+    frame.__xmLoaded = true;
+    if (frameIsOurs(frame)) return;
     const now = performance.now();
     if (now - (frame.__xmRetriedAt || -Infinity) < PANEL_RETRY_MS) return;
     frame.__xmRetriedAt = now;
@@ -1091,6 +1097,7 @@
     let frame = panelFrames.get(href);
     if (frame) {
       panelFrames.delete(href);
+      if (frame.__xmLoaded && !frameIsOurs(frame)) frame.src = panelEntryUrl(href); // it never got a page
     } else {
       frame = document.createElement("iframe");
       frame.setAttribute("sandbox", FRAME_SANDBOX);
@@ -1142,7 +1149,7 @@
   function pointPostFrame(href) {
     try {
       const win = postFrame.contentWindow;
-      if (win.location.origin !== location.origin) return false;
+      if (win.location.origin !== location.origin || !frameIsOurs(postFrame)) return false;
       if (win.location.pathname !== href) {
         win.history.replaceState(null, "", href);
         win.dispatchEvent(new win.PopStateEvent("popstate", { state: null }));

@@ -44,32 +44,37 @@ if (window !== window.top) {
   // is fetched and written into this document. The header's CSP goes along as a meta tag,
   // so X's nonces still apply and the page keeps its own limits.
   function writeEntryPage(triesLeft = 3) {
-    document.documentElement.setAttribute("data-xm-panel", "");
-    document.documentElement.style.display = "none"; // not the text of robots.txt
+    const root = document.documentElement;
+    root.setAttribute("data-xm-entry", ""); // loading, so masonry.js leaves it alone
+    root.style.display = "none"; // not the text of robots.txt
     fetch(X_ENTRY, { credentials: "same-origin" })
       .then(async (response) => {
-        const html = await response.text();
-        // The post window may have been pointed at another post in the meantime.
-        const pointed = location.pathname === WRITTEN_ENTRY ? sameSiteAddress(target) || X_ENTRY : location.pathname + location.search + location.hash;
-        replace.call(history, null, "", pointed);
-
-        const opening = /^[\s\S]*?<html\b[^>]*>/i.exec(html)?.[0] || "";
-        const rest = html.slice(opening.length);
-        const csp = response.headers.get("content-security-policy");
-        const meta = csp ? `<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
-        const hasHead = /<head\b[^>]*>/i.test(rest);
-
-        // Opening a document clears the window's listeners, and the page's first script
-        // runs during the write, so the frame is set up between the two.
-        document.open();
-        document.write(opening || "<!doctype html><html>");
-        startFrame();
-        document.write(hasHead ? rest.replace(/<head\b[^>]*>/i, (head) => head + meta) : meta + rest);
-        document.close();
+        if (!response.ok) throw new Error(response.status);
+        return { html: await response.text(), csp: response.headers.get("content-security-policy") };
       })
-      .catch(() => {
+      .then(writePage, () => {
         if (triesLeft > 1) setTimeout(() => writeEntryPage(triesLeft - 1), 2000);
+        else root.removeAttribute("data-xm-entry"); // the next open starts over
       });
+  }
+
+  function writePage({ html, csp }) {
+    // The post window may have been pointed at another post in the meantime.
+    const pointed = location.pathname === WRITTEN_ENTRY ? sameSiteAddress(target) || X_ENTRY : location.pathname + location.search + location.hash;
+    replace.call(history, null, "", pointed);
+
+    const opening = /^[\s\S]*?<html\b[^>]*>/i.exec(html)?.[0] || "";
+    const rest = html.slice(opening.length);
+    const meta = csp ? `<meta http-equiv="Content-Security-Policy" content="${csp.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">` : "";
+    const hasHead = /<head\b[^>]*>/i.test(rest);
+
+    // Opening a document clears the window's listeners, and the page's first script
+    // runs during the write, so the frame is set up between the two.
+    document.open();
+    document.write(opening || "<!doctype html><html>");
+    startFrame();
+    document.write(hasHead ? rest.replace(/<head\b[^>]*>/i, (head) => head + meta) : meta + rest);
+    document.close();
   }
 
   if (location.pathname === WRITTEN_ENTRY && target && framedByThisSite()) writeEntryPage();
