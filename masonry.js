@@ -1162,7 +1162,7 @@
 
   function postShows(href) {
     try {
-      return postFrame.contentWindow.location.pathname === href;
+      return postFrame.contentWindow.location.pathname === href && frameIsOurs(postFrame);
     } catch {
       return false;
     }

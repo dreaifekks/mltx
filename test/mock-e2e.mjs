@@ -235,13 +235,29 @@ if (SAFARI) {
     const repeated = document.cookie;
     d.cookie = "night_mode=0; path=/";
     await new Promise((r) => setTimeout(r, 150)); // another frame's write reaches this one a little later
-    const out = { repeated, changed: document.cookie, frame: d.cookie };
+    const out = { repeated, changed: document.cookie, frame: d.cookie, dark: f.contentWindow.matchMedia("(prefers-color-scheme: dark)").matches };
     f.remove();
     document.cookie = "night_mode=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
     document.documentElement.style.colorScheme = "";
     return out;
   }, ENTRY);
-  check("X repeating the theme doesn't pin it, a real change is kept", !written.repeated.includes("night_mode") && written.changed.includes("night_mode=0") && written.frame.includes("night_mode=0") && !written.frame.includes("night_mode=2"), written);
+  check("X repeating the theme doesn't pin it, a real change is kept and ends the following", !written.repeated.includes("night_mode") && written.changed.includes("night_mode=0") && written.frame.includes("night_mode=0") && !written.frame.includes("night_mode=2") && !written.dark, written);
+  const cleared = await p.evaluate(async (entry) => {
+    document.cookie = "night_mode=2; path=/";
+    document.documentElement.style.colorScheme = "dark";
+    const f = document.createElement("iframe");
+    f.src = entry + "?xm-panel=" + encodeURIComponent("/themed");
+    document.body.append(f);
+    await new Promise((r) => setTimeout(r, 500));
+    const d = f.contentDocument;
+    d.cookie = "night_mode=2; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    await new Promise((r) => setTimeout(r, 150));
+    const out = { top: document.cookie, frame: d.cookie };
+    f.remove();
+    document.documentElement.style.colorScheme = "";
+    return out;
+  }, ENTRY);
+  check("clearing the theme, even with the same value, really clears it", !cleared.top.includes("night_mode") && !cleared.frame.includes("night_mode"), cleared);
   check("the frame's own cookies still reach the site", dark.cookie.includes("xm_probe=1") && dark.topCookie.includes("xm_probe=1"), dark.topCookie);
 }
 if (SAFARI) {
@@ -528,6 +544,15 @@ check("reopening that post shows the post, not where the window had wandered", p
 await p.keyboard.press("Escape");
 await p.waitForTimeout(200);
 check("Esc closes it", !(await postState()).open);
+// a post window whose page never arrived loads again, even for the same post
+await p.evaluate(() => document.querySelector("#xm-post iframe").contentDocument.documentElement.removeAttribute("data-xm-panel"));
+const lostFrom = hits.length;
+await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();
+await p.waitForTimeout(700);
+const lostBack = await p.evaluate(() => document.querySelector("#xm-post iframe").contentDocument.documentElement.hasAttribute("data-xm-panel"));
+check("reopening the same post after its page was lost loads it again", lostBack && hits.slice(lostFrom).includes("/i/history"), { lostBack, hits: hits.slice(lostFrom) });
+await p.keyboard.press("Escape");
+await p.waitForTimeout(200);
 const newTabsBefore = ctx.pages().length;
 await p.locator('[data-xm-placed] [data-testid="tweetText"]').first().click({ modifiers: [NEW_TAB_KEY] });
 await p.waitForTimeout(200);

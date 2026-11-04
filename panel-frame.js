@@ -66,20 +66,27 @@ if (window !== window.top) {
     const scheme = feed.documentElement.style.colorScheme;
     if (scheme !== "dark" && scheme !== "light") return "";
 
+    // Until X changes or clears the theme itself, which makes it the user's own choice.
+    let following = true;
+    const shown = scheme === "dark" ? "2" : "0";
+
     const cookie = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
-    let shown = scheme === "dark" ? "2" : "0";
     Object.defineProperty(document, "cookie", {
       configurable: true,
       get() {
-        const others = cookie.get.call(document).split("; ").filter((c) => c && !c.startsWith("night_mode="));
-        return [...others, `night_mode=${shown}`].join("; ");
+        const real = cookie.get.call(document);
+        if (!following) return real;
+        return [...real.split("; ").filter((c) => c && !c.startsWith("night_mode=")), `night_mode=${shown}`].join("; ");
       },
-      // X writes back what it reads. Only a change of theme is the user's own and is kept,
-      // otherwise this would pin the theme for someone following the system's setting.
+      // X writes back what it reads, which would pin the theme for someone following the
+      // system's setting. Only a plain repeat is dropped.
       set(value) {
-        const written = /^\s*night_mode=(\d+)/.exec(value)?.[1];
-        if (written === shown) return;
-        if (written) shown = written;
+        const written = /^\s*night_mode=([^;]*)(.*)$/.exec(value);
+        if (following && written) {
+          const clears = !written[1] || /;\s*max-age=\s*(0|-)/i.test(written[2]) || Date.parse(/;\s*expires=([^;]*)/i.exec(written[2])?.[1]) <= Date.now();
+          if (written[1] === shown && !clears) return;
+          following = false;
+        }
         cookie.set.call(document, value);
       },
     });
@@ -91,7 +98,7 @@ if (window !== window.top) {
       if (!asked) return list;
       return new Proxy(list, {
         get(target, key) {
-          if (key === "matches") return asked[1] === scheme;
+          if (key === "matches" && following) return asked[1] === scheme;
           const value = target[key];
           return typeof value === "function" ? value.bind(target) : value;
         },
