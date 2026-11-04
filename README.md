@@ -67,3 +67,7 @@ trying a change in an open tab without reloading the extension.
 
 The approach of driving X's list through a proxy viewport comes from
 [x-ultrawide](https://github.com/thehasnaink/x-ultrawide) (MIT). No code is copied.
+
+## License
+
+MIT
