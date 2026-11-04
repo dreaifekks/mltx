@@ -219,6 +219,8 @@ if (SAFARI) {
     document.documentElement.style.colorScheme = "";
     return out;
   }, { scheme, entry: ENTRY });
+  const again = await f.evaluate((source) => { const back = history.back; (0, eval)(source); return back === history.back; }, fs.readFileSync(path.join(ext, "panel-frame.js"), "utf8"));
+  check("injected again into the same window, as Safari does, the frame isn't set up twice", again);
   const dark = await framedTheme("dark");
   check("a written page takes the feed's dark theme", dark.dark && !dark.light && dark.other && dark.cookie.includes("night_mode=2") && dark.bg === dark.topBg && !dark.topCookie.includes("night_mode"), dark);
   const light = await framedTheme("light");
@@ -548,6 +550,40 @@ await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();
 const again = await loadingCleared();
 pn = await panes();
 check("reopening that post shows the post, not where the window had wandered", pn.on && pn.path === hrefShown && again < 1500, { pn, again });
+{
+  const left = () => postFrameOf().evaluate(() => {
+    const q = (s) => document.querySelector(s);
+    const f = q("[data-xm-focal]"), a = q("[data-xm-actions]"), c = q("[data-xm-composer]");
+    return { focalTop: Math.round(f.getBoundingClientRect().top), focalBottom: Math.round(f.getBoundingClientRect().bottom), scrollTop: f.scrollTop, overflow: getComputedStyle(f).overflowY, articleOverflow: getComputedStyle(f.querySelector("article")).overflowY, actionsTop: Math.round(a.getBoundingClientRect().top), composerTop: Math.round(c.getBoundingClientRect().top), page: scrollY, offset: document.documentElement.style.getPropertyValue("--xm-post-offset") };
+  });
+  await postFrameOf().evaluate(() => { document.querySelector("[data-xm-focal] article").style.height = "2000px"; window.scrollTo(0, 0); });
+  await p.waitForTimeout(200);
+  const atTop = await left();
+  await p.mouse.move(400, 300);
+  await p.mouse.wheel(0, 300);
+  await p.waitForTimeout(300);
+  const moved = await left();
+  if (SAFARI) {
+    check("nothing around the bars clips, which Safari wouldn't draw", atTop.overflow === "visible" && atTop.articleOverflow === "visible", atTop);
+    check("the wheel moves a long post under the bars, the replies stay", moved.focalTop === atTop.focalTop - 300 && moved.scrollTop === 0 && moved.actionsTop === atTop.actionsTop && moved.composerTop === atTop.composerTop && moved.page === 0, { atTop, moved });
+    await p.mouse.wheel(0, 99999);
+    await p.waitForTimeout(300);
+    const end = await left();
+    check("it stops with the post's end above the bars", end.focalBottom === end.actionsTop && end.page === 0, end);
+    await p.mouse.wheel(0, 300);
+    await p.waitForTimeout(300);
+    const beyond = await left();
+    check("past the end the wheel goes to the replies", beyond.focalBottom === end.focalBottom && beyond.page > 0, beyond);
+  } else {
+    check("elsewhere the post scrolls natively in its pane", atTop.overflow === "auto" && moved.scrollTop === 300 && moved.focalTop === atTop.focalTop && moved.actionsTop === atTop.actionsTop, { atTop, moved });
+  }
+  await postFrameOf().evaluate(() => { document.querySelector("[data-xm-focal] article").style.height = "300px"; document.querySelector("[data-xm-focal]").scrollTop = 0; window.scrollTo(0, 0); });
+  await p.waitForTimeout(200);
+  if (SAFARI) {
+    const short = await left();
+    check("a post that got shorter comes back into its pane", short.focalTop === 0, short);
+  }
+}
 await p.keyboard.press("Escape");
 await p.waitForTimeout(200);
 check("Esc closes it", !(await postState()).open);

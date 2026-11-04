@@ -79,6 +79,19 @@ html[data-xm-post] [data-xm-focal] article {
   border-bottom-width: 0 !important;
 }
 
+/* Safari: nothing around the bars may clip, so the post moves instead of scrolling. See
+   movesPost in panel-frame.js. */
+html[data-xm-post][data-xm-moves-post] [data-xm-focal] {
+  overflow: visible !important;
+  top: calc(-1 * var(--xm-post-offset, 0px)) !important;
+  bottom: auto !important;
+  min-height: calc(100vh - var(--xm-left-bottom, 110px));
+}
+
+html[data-xm-post][data-xm-moves-post] [data-xm-focal] article {
+  overflow: visible !important;
+}
+
 /* Pinned below the post. The left pane's bottom edge follows their height, so the reply
    box can grow as you type. */
 html[data-xm-post] [data-xm-actions] {

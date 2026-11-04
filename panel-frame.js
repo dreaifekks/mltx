@@ -138,6 +138,11 @@ if (window !== window.top) {
   else startFrame();
 
   function startFrame() {
+    // Safari injects this file again when a written page gets its document element, into
+    // the same window. One set of history shims and one post view, or they fight.
+    if (window.__xmFrameStarted) return;
+    window.__xmFrameStarted = true;
+
     document.documentElement.setAttribute("data-xm-panel", "");
 
     const history = window.history;
@@ -246,6 +251,39 @@ function startPostView() {
     return true;
   }
 
+  // Safari leaves a fixed element undrawn when an ancestor clips or scrolls, even though
+  // it lays it out in the right place. The bars are inside the post, so there the post
+  // can't scroll in its pane: it's moved instead, and slides under the bars.
+  const movesPost = navigator.vendor.startsWith("Apple");
+  if (movesPost) root.setAttribute("data-xm-moves-post", "");
+  let postOffset = 0;
+
+  // False if the post is already as far as it goes that way.
+  function movePost(to) {
+    const [focal, actions, box] = marked;
+    if (!focal || !actions) return false;
+    const pane = innerHeight - actions.offsetHeight - (box ? box.offsetHeight : 0);
+    const next = Math.round(Math.min(Math.max(0, focal.offsetHeight - pane), Math.max(0, to)));
+    if (next === postOffset) return false;
+    postOffset = next;
+    setVar("--xm-post-offset", `${next}px`);
+    return true;
+  }
+
+  // As with a scrolling pane, a post with nowhere left to go leaves the wheel to the
+  // replies, and so do the bars.
+  if (movesPost) {
+    addEventListener(
+      "wheel",
+      (e) => {
+        if (e.ctrlKey || !e.deltaY || !e.target.closest) return;
+        if (!e.target.closest("[data-xm-focal]") || e.target.closest("[data-xm-actions], [data-xm-composer]")) return;
+        if (movePost(postOffset + e.deltaY * (e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1))) e.preventDefault();
+      },
+      { passive: false },
+    );
+  }
+
   const MAX_SORT_ROW = 80;
   const MARKS = ["data-xm-focal", "data-xm-actions", "data-xm-composer", "data-xm-sort"];
   let marked = [null, null, null, null];
@@ -288,6 +326,8 @@ function startPostView() {
   function standDown(S) {
     setMarks([null, null, null, null]);
     root.removeAttribute("data-xm-post");
+    postOffset = 0;
+    root.style.removeProperty("--xm-post-offset");
     if (focalId) {
       focalId = null;
       if (S) S._scheduleCriticalUpdate();
@@ -360,6 +400,7 @@ function startPostView() {
     if (!root.hasAttribute("data-xm-post")) root.setAttribute("data-xm-post", "");
     followScroll();
     updateHeights();
+    if (movesPost) movePost(postOffset); // the post or the bars may have changed height
     setVar("--xm-canvas", getComputedStyle(document.body).backgroundColor);
 
     if (readyFor !== id && cell.offsetHeight > 0) {
