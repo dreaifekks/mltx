@@ -566,6 +566,18 @@ check("reopening that post shows the post, not where the window had wandered", p
   if (SAFARI) {
     check("nothing around the bars clips, which Safari wouldn't draw", atTop.overflow === "visible" && atTop.articleOverflow === "visible", atTop);
     check("the wheel moves a long post under the bars, the replies stay", moved.focalTop === atTop.focalTop - 300 && moved.scrollTop === 0 && moved.actionsTop === atTop.actionsTop && moved.composerTop === atTop.composerTop && moved.page === 0, { atTop, moved });
+    const slow = await postFrameOf().evaluate(() => {
+      const article = document.querySelector("[data-xm-focal] article");
+      const steps = [0.3, 0.3, 0.3, 0.3].map((deltaY) => !article.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })));
+      return { steps, offset: parseFloat(document.documentElement.style.getPropertyValue("--xm-post-offset")) };
+    });
+    check("slow trackpad fractions add up and stay with the post", slow.steps.every(Boolean) && Math.abs(slow.offset - 301.2) < 0.01, slow);
+    const overSort = await postFrameOf().evaluate(() => {
+      const before = document.documentElement.style.getPropertyValue("--xm-post-offset");
+      const taken = !document.querySelector("[data-xm-sort]").dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
+      return { taken, same: before === document.documentElement.style.getPropertyValue("--xm-post-offset") };
+    });
+    check("the wheel over the sort row goes to the replies, not the post", !overSort.taken && overSort.same, overSort);
     await p.mouse.wheel(0, 99999);
     await p.waitForTimeout(300);
     const end = await left();

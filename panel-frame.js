@@ -263,7 +263,8 @@ function startPostView() {
     const [focal, actions, box] = marked;
     if (!focal || !actions) return false;
     const pane = innerHeight - actions.offsetHeight - (box ? box.offsetHeight : 0);
-    const next = Math.round(Math.min(Math.max(0, focal.offsetHeight - pane), Math.max(0, to)));
+    // Not rounded: a slow trackpad sends fractions of a pixel, and they have to add up.
+    const next = Math.min(Math.max(0, focal.offsetHeight - pane), Math.max(0, to));
     if (next === postOffset) return false;
     postOffset = next;
     setVar("--xm-post-offset", `${next}px`);
@@ -277,7 +278,7 @@ function startPostView() {
       "wheel",
       (e) => {
         if (e.ctrlKey || !e.deltaY || !e.target.closest) return;
-        if (!e.target.closest("[data-xm-focal]") || e.target.closest("[data-xm-actions], [data-xm-composer]")) return;
+        if (!e.target.closest("[data-xm-focal]") || e.target.closest("[data-xm-actions], [data-xm-composer], [data-xm-sort]")) return;
         if (movePost(postOffset + e.deltaY * (e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1))) e.preventDefault();
       },
       { passive: false },
