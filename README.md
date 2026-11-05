@@ -50,6 +50,8 @@ Needs Chrome, Firefox 128 or Safari 18.4 and up. The Firefox zip isn't signed: l
   Pages enter the panel through `/i/history`, because X's service worker answers
   `/notifications`, `/<user>` and others from a cached page the rule can't reach.
 - The post box is gone from the timeline. The rail's + button opens the composer.
+- Ads, Who to follow, trends and X's other non-post modules are gone from the feed.
+  A conversation's "show more replies" row stays inside its card and opens the post window.
 
 ## How it works
 
