@@ -52,10 +52,10 @@ const home = page(`<div id="app">${rail}<main><div><div><div data-testid="primar
 <script>
 class Rect{constructor(t,h){this._t=t;this._h=h}getTop(){return this._t}getBottom(){return this._t+this._h}getHeight(){return this._h}translateBy(d){return new Rect(this._t+d,this._h)}}
 const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollTo(x,y)},scrollBy(){},scrollY(){return window.scrollY}};
-class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
+class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.includes('-gap-')?36:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
-u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML='<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
+u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML=it.id.includes('-gap-')?'<a href="/i/status/'+it.id.split('-gap-')[1]+'" role="link" style="display:block;height:36px">show more replies</a>':'<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 </script>`);
@@ -467,6 +467,64 @@ const noTail = await p.evaluate(async () => {
   return out;
 });
 check("a conversation marker naming a post that isn't there joins nothing", !noTail.a && !noTail.b, noTail);
+
+// ---- what isn't a post stays out of the feed --------------------------------------
+const filtered = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const tweet = (id, content = { promotedMetadata: null }) => ({ id, data: { type: "tweet", content } });
+  const junk = [
+    { id: "promoted-tweet-9100-5535a724dee09493", data: { type: "tweet", content: { promotedMetadata: { advertiser: "a" } } } },
+    { id: "tweet-9101", data: { type: "tweet", content: { promotedMetadata: { advertiser: "a" } } } },
+    { id: "header-who-to-follow-1234567890123", data: { type: "ui_moduleHeader" } },
+    { id: "who-to-follow-1234567890123-user-1", data: { type: "user", content: {} } },
+    { id: "footer-who-to-follow-1234567890123", data: { type: "ui_moduleFooter" } },
+    { id: "$divider-bottom-who-to-follow-1234567890123" },
+    { id: "trends-1234567890123-trend-1", data: { type: "trend", content: {} } },
+    { id: "something-new-1234567890123", data: { type: "someFutureModule", content: {} } },
+  ];
+  const incoming = [...S.props.list, ...junk.slice(0, 4), tweet("tweet-9102"), ...junk.slice(4), { id: "feedback-9" }, tweet("tweet-9103")];
+  S.props = { ...S.props, list: incoming };
+  S._scheduleCriticalUpdate();
+  const b = document.documentElement;
+  const mounted = new Set();
+  for (let i = 0; i < 40; i++) {
+    window.scrollTo(0, b.scrollHeight);
+    await sleep(100);
+    for (const id of S._cells.keys()) mounted.add(id);
+    if (S._cells.get("tweet-9103")?.getElement()?.hasAttribute("data-xm-placed")) break;
+  }
+  await sleep(200);
+  const ids = S.props.list.map((i) => i.id);
+  const out = { inList: junk.filter((j) => ids.includes(j.id)).map((j) => j.id), mounted: junk.filter((j) => mounted.has(j.id)).map((j) => j.id), kept: ids.includes("tweet-9102") && ids.includes("tweet-9103") && ids.includes("feedback-9"), placed: !!S._cells.get("tweet-9103")?.getElement()?.hasAttribute("data-xm-placed") };
+  window.scrollTo(0, 0); await sleep(300);
+  return out;
+});
+check("ads and X's modules stay out of the list and are never mounted", filtered.inList.length === 0 && filtered.mounted.length === 0, filtered);
+check("posts and untyped items around them stay and get placed", filtered.kept && filtered.placed, filtered);
+
+// ---- a conversation's "show more replies" row -------------------------------------
+const gapRow = await p.evaluate(async () => {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const S = window.scroller;
+  const tweet = (id) => ({ id, data: { type: "tweet", content: { promotedMetadata: null } } });
+  const gapId = "home-conversation-8103-gap-8101";
+  S.props = { ...S.props, list: [...S.props.list, { id: "impressionPlaceholder-home-conversation-8103", data: { type: "ui_moduleImpressionPlaceholder", content: {} } }, tweet("tweet-8101"), { id: gapId, data: { type: "ui_conversationModuleGap", content: { allTweetIds: ["8101", "8102", "8103"], focalTweetId: "8101" } } }, tweet("tweet-8103")] };
+  S._scheduleCriticalUpdate();
+  const b = document.documentElement;
+  const cell = (id) => S._cells.get(id)?.getElement();
+  for (let i = 0; i < 40; i++) { window.scrollTo(0, b.scrollHeight); await sleep(100); if (cell("tweet-8103")?.hasAttribute("data-xm-placed")) break; }
+  await sleep(200);
+  const at = (id) => { const c = cell(id); const [x, y] = (c ? c.style.translate : "").split(" ").map(parseFloat); return { x, y, h: c && c.offsetHeight, join: c && c.getAttribute("data-xm-join") }; };
+  return { head: at("tweet-8101"), gap: at(gapId), tail: at("tweet-8103") };
+});
+check("the row sits inside its conversation's card, not in a block of its own", gapRow.head.join === "next" && gapRow.gap.join === "prev next" && gapRow.tail.join === "prev" && gapRow.head.x === gapRow.gap.x && gapRow.gap.x === gapRow.tail.x && gapRow.gap.y === gapRow.head.y + gapRow.head.h && gapRow.tail.y === gapRow.gap.y + gapRow.gap.h, gapRow);
+await p.locator('[data-xm-board] a[href="/i/status/8101"]').click();
+await p.waitForTimeout(400);
+const gapOpened = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), path: location.pathname, frame: document.querySelector("#xm-post iframe")?.contentWindow.location.pathname }));
+check("clicking the row opens the post window and stays on the feed", gapOpened.open && gapOpened.path === "/home" && gapOpened.frame === "/i/status/8101", gapOpened);
+await p.keyboard.press("Escape");
+await p.evaluate(async () => { window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 300)); });
 const swapDeep = await p.evaluate(async () => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = window.scroller;

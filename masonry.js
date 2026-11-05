@@ -63,6 +63,12 @@
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
   const CONVERSATION = /^impressionPlaceholder-home-conversation-(\d+)$/;
+  // What the feed keeps of X's list, by the item's type: posts and what holds a conversation
+  // or the list itself together. Who to follow, trends, prompts and the like all go, along
+  // with the header, footer and divider around them. A post is never dropped for its id,
+  // so one in a shape not seen before still shows.
+  const FEED_TYPES = new Set(["tweet", "tombstone", "ui_tombstone", "ui_moduleImpressionPlaceholder", "ui_conversationModuleGap", "timelineCursor", "newEntries"]);
+  const NOT_IN_FEED = /^(?:promoted-|\$divider-)/;
   // Empty items marking where something starts. They need no measuring and can't count on
   // being mounted: nothing with no height falls inside the window X is asked for.
   const MARKER = /^impressionPlaceholder-/;
@@ -150,11 +156,21 @@
 
   // ---- stable order -------------------------------------------------------
 
+  // Ads and X's recommendation modules never reach the list, so they're never mounted.
+  // An item with no type is one of the list's own, like the spinner at the end.
+  function belongsInFeed(item) {
+    if (NOT_IN_FEED.test(item.id)) return false;
+    const data = item.data;
+    if (!data || !data.type) return true;
+    return FEED_TYPES.has(data.type) && !(data.content && data.content.promotedMetadata);
+  }
+
   // X moves posts it considers unseen to the end of its list when more load. The
   // board's cards don't care, but the mounted range is a slice of that list, so
   // X's list is kept in first-seen order. New ids stay in X's relative order.
-  function arrange(board, list) {
-    if (list === board.lastIn || list === board.lastOut) return board.lastOut;
+  function arrange(board, incoming) {
+    if (incoming === board.lastIn || incoming === board.lastOut) return board.lastOut;
+    const list = incoming.filter(belongsInFeed);
     const known = new Map(board.order.map((id, i) => [id, i]));
     const byId = new Map();
     const front = [];
@@ -191,9 +207,9 @@
     for (const item of list) if (!inPlace.has(item.id)) next.push(item.id);
     const before = board.order;
     board.order = next;
-    const same = next.length === list.length && next.every((id, i) => list[i].id === id);
-    board.lastIn = list;
-    board.lastOut = same ? list : next.map((id) => byId.get(id));
+    const same = next.length === incoming.length && next.every((id, i) => incoming[i].id === id);
+    board.lastIn = incoming;
+    board.lastOut = same ? incoming : next.map((id) => byId.get(id));
     rebuildGroups(board);
     forgetDropped(board, byId, before);
     return board.lastOut;
@@ -245,11 +261,13 @@
       const id = order[k];
       const opens = CONVERSATION.exec(id);
       if (opens) {
-        // Only an unbroken run of posts ending at the one it names. Anything else in the
-        // way means the posts aren't known to belong together, so they stay separate.
+        // Only an unbroken run of posts ending at the one it names, counting its own "show
+        // more replies" row. Anything else in the way means the posts aren't known to belong
+        // together, so they stay separate.
         const end = order.indexOf(`tweet-${opens[1]}`, k);
         const run = end > k && end - k <= MAX_THREAD ? order.slice(k + 1, end + 1) : [];
-        if (run.every((m) => m.startsWith("tweet-"))) {
+        const gap = `home-conversation-${opens[1]}-gap-`;
+        if (run.every((m) => m.startsWith("tweet-") || m.startsWith(gap))) {
           for (let i = 1; i < run.length; i++) board.groupPrev.set(run[i], run[i - 1]);
         }
       }
@@ -1228,7 +1246,16 @@
       if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const article = t.closest('[data-xm-board] article[data-testid="tweet"]');
-      if (!article) return;
+      if (!article) {
+        // A conversation's "show more replies" row links to the post page, so it opens the
+        // same way a post does.
+        const more = t.closest('[data-xm-board] a[href^="/i/status/"]');
+        if (!more) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openPost(more.getAttribute("href"));
+        return;
+      }
       const time = article.querySelector('a[href*="/status/"] time');
       const statusLink = time && time.closest("a");
       if (!statusLink) return;
