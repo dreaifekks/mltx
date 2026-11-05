@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const FILES = ["masonry.js", "masonry.css", "panel-frame.js", "panel-frame.css", "frame-rules.json"];
+const FILES = ["common.js", "settings-bridge.js", "masonry.js", "masonry.css", "panel-frame.js", "panel-frame.css", "frame-rules.json", "popup.html", "popup.css", "popup.js"];
 const ICONS = [16, 32, 48, 128, 512].map((size) => `icons/icon-${size}.png`);
 
 const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));

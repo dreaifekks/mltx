@@ -30,25 +30,42 @@ Needs Chrome, Firefox 128 or Safari 18.4 and up. The Firefox zip isn't signed: l
 
 - Column count follows the window: as many as fit at 360px or wider, at most 4.
   Below a 900px window, X's own layout stays.
-- `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. The choice is
-  stored in `localStorage` under `xm-cols`.
+- `Alt+-` / `Alt+=` sets it by hand, `Alt+0` goes back to automatic. This is the same
+  setting as the column count in the toolbar popup.
 - The button above X's Grok and chat buttons switches to a sideways flow: screen-high
   columns that scroll left and right. A sideways swipe stays native, a vertical gesture
   or mouse wheel anywhere in the window moves the list, and a card taller than its
-  column scrolls inside itself. The choice is stored under `xm-flow`.
+  column scrolls inside itself. The switch lasts until the page reloads; the default
+  flow is in the toolbar popup.
 - Timelines (For you, Following, pinned lists): hover the list icon under the X logo.
 - Hover the X logo and click to expand or collapse the sidebar. X only draws labels
   in windows about 1265px or wider, so narrower ones keep the plain logo.
 - The rail's links open in a sheet over the feed. Clicking outside it goes back, and
   clicking the icon again brings the page back as it was. The 3 most recently used
   pages stay alive; each is a full X page in an iframe, so they cost memory.
-- Clicking a post opens X's post page in a floating window: the post on the left with
-  its own scrolling and the action bar and reply box pinned below it, the sort button
-  and replies on the right. Clicking outside or Esc closes it. One iframe stays warm, so only the first open loads a page.
-  Photos, profile links, buttons and quoted posts on a card keep doing what they do.
+- Clicking a post opens X's post page in a floating window: the conversation on the left
+  with the action bar and reply box pinned below it, the sort button and replies on the
+  right. Clicking outside or Esc closes it. One iframe stays warm, so only the first open
+  loads a page. Photos, profile links and buttons on a card keep doing what they do.
+- The left side runs from the root of the conversation down to the post clicked, moved up
+  only as far as it takes to see that post whole. Everything above it is shown in full and
+  can be scrolled to. Clicking any post, above or among the replies, moves the window to
+  it the same way.
+- While a side panel or the post window shows, the browser's back and forward buttons work
+  on its pages. Back past its first page closes it.
+- Quoted posts, "show this thread" links and timestamps on a card open in the window too,
+  and so do posts clicked in a side panel, over that panel. A photo in a quote stays X's.
 - `frame-rules.json` removes `X-Frame-Options` only for x.com framed by x.com.
   Pages enter the panel through `/i/history`, because X's service worker answers
   `/notifications`, `/<user>` and others from a cached page the rule can't reach.
+- The toolbar icon opens the settings: muted words, default flow, theme (follow X, black
+  or white), whether the rail's links open in the side panel, in the same tab or in a new
+  tab, the side panel's refresh time (a hidden page past it loads again when reopened, in
+  the post window too), and the column count.
+  Everything saves as it changes and reaches open pages at
+  once, except that changing the theme reloads them, since X only reads it starting up.
+- Muted words hide posts in the feed, the post window's replies and the side panels, by
+  their text, author or link card. The post opened and what it answers always show.
 - The post box is gone from the timeline. The rail's + button opens the composer.
 - Ads, Who to follow, trends and X's other non-post modules are gone from the feed.
   A conversation's "show more replies" row stays inside its card and opens the post window.
@@ -63,6 +80,12 @@ It depends on X's internals: `window.scroller`, and on that object `_viewport`,
 `_cells`, `_rootRef`, `_getHeight`, `_scheduleCriticalUpdate`, `props.list`,
 `props.cacheKey`. If those change, the list does not attach and the page falls
 back to X's normal layout after 8 seconds, or after 3 errors in a row.
+
+Settings live in the extension's storage. `settings-bridge.js`, the only part in the
+extension's own world, copies them to `localStorage` under `xm-settings`, so `common.js`
+has them synchronously at `document_start`. The black and white themes show X a
+`night_mode` cookie and a `prefers-color-scheme` in that page only, and the real cookie
+stays as it was.
 
 `test/inject.mjs` bundles the script and stylesheet into one expression, for
 trying a change in an open tab without reloading the extension.

@@ -4,6 +4,7 @@
 //   npm test                 tests this directory as it is
 //   EXT_DIR=dist/chrome npm test   tests a build
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import https from "node:https";
@@ -23,7 +24,7 @@ let ext = built;
 if (SAFARI) {
   ext = dir + "/ext";
   fs.mkdirSync(ext);
-  for (const name of ["icons", "frame-rules.json", "masonry.css", "panel-frame.css"]) fs.cpSync(path.join(built, name), path.join(ext, name), { recursive: true });
+  for (const name of ["icons", "frame-rules.json", "masonry.css", "panel-frame.css", "common.js", "settings-bridge.js", "popup.html", "popup.css", "popup.js"]) fs.cpSync(path.join(built, name), path.join(ext, name), { recursive: true });
   for (const name of ["masonry.js", "panel-frame.js"]) {
     const source = fs.readFileSync(path.join(built, name), "utf8");
     if (!source.includes('navigator.vendor.startsWith("Apple")')) throw new Error("no browser check in " + name);
@@ -55,14 +56,34 @@ const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollT
 class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.includes('-gap-')?36:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
-u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML=it.id.includes('-gap-')?'<a href="/i/status/'+it.id.split('-gap-')[1]+'" role="link" style="display:block;height:36px">show more replies</a>':'<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button></article>';this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
+u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML=it.id.includes('-gap-')?'<a href="/i/status/'+it.id.split('-gap-')[1]+'" role="link" style="display:block;height:36px">show more replies</a>':'<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'" role="link"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button>'+(+it.id.slice(6)%5===0?'<div role="link" tabindex="0" data-testid="quote"><div><time>2h</time></div><div data-testid="tweetPhoto" style="height:8px;background:#333"></div>quoted</div>':'')+'</article>';const q=c.querySelector('[data-testid="quote"]');if(q){q.__reactFiber$mock={memoizedProps:{},return:{memoizedProps:{link:{pathname:"https://twitter.com/quoted/status/"+(70000+ +it.id.slice(6)),anchorless:true}},return:null}};q.addEventListener("click",()=>{window.__quoteLeft=(window.__quoteLeft||0)+1})}this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
+window.__xPops=0;addEventListener('popstate',()=>window.__xPops++);
 </script>`);
 const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();
 const content=document.getElementById("content");content.prepend(document.createElement("div"));const root=document.createElement("div");content.append(root);
-const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{}};window.scroller=S;
-const render=()=>{root.innerHTML="";S._cells.clear();const m=/status\\/(\\d+)/.exec(location.pathname);if(!m)return;const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML='<article data-testid="tweet" style="height:300px">post '+m[1]+'<div role="group"><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>';root.append(c);S._cells.set("tweet-"+m[1],{getElement:()=>c})};render();addEventListener("popstate",render);
+const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{list:[]}};window.scroller=S;
+const cellFor=(item,html)=>{const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML=html;S._cells.set(item,{getElement:()=>c});return c};
+const go=(href)=>{history.pushState(null,"",href);render()};
+const render=()=>{root.innerHTML="";S._cells.clear();S.props={list:[]};const m=/status\\/(\\d+)/.exec(location.pathname);
+if(!m){if(location.pathname!=="/someone"){const a=document.createElement("article");a.dataset.testid="tweet";a.innerHTML='<a href="/z/status/5003" role="link"><time>1h</time></a><p data-testid="tweetText">in the panel</p>';content.append(a)}return}
+const id=+m[1];const inThread=id>=5000&&id<6000;
+const isArticle=id===5600;
+const focal=cellFor("tweet-"+id,'<article data-testid="tweet" style="position:relative;z-index:0;height:'+(window.__focalHeight||300)+'px">post '+id+(isArticle?'<div id="head" style="position:relative;z-index:2;height:60px">header</div><div style="position:relative;z-index:0"><div role="group" id="compact" style="max-width:300px"><button data-testid="reply">reply</button></div></div>':'')+'<div style="position:relative;z-index:0"><div role="group" id="postbar"'+(isArticle?' style="max-width:none"':'')+'><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>');
+root.append(focal);
+const replies=inThread?[5900,5901,5902]:[];
+const replyCells=replies.map((n)=>{const c=cellFor("conversationthread-"+n+"-tweet-"+n,'<article data-testid="tweet" style="height:120px"><a href="/x/status/'+n+'" role="link"><time>1h</time></a><p data-testid="tweetText">'+(n===5901?"reply with mutedword":"reply "+n)+'</p></article>');c.querySelector("article").addEventListener("click",()=>go("/x/status/"+n));root.append(c);return c});
+const after=["tweet-"+id,...replies.map((n)=>"conversationthread-"+n+"-tweet-"+n)].map((i)=>({id:i}));
+S.props={list:after};
+const above=id===5500?[5400]:inThread&&id!==5001?[5001,5002,5003,5004].filter((n)=>n<id):id>=5900&&id<6000?[5001,5002,5003]:[];
+if(!above.length)return;
+const path=location.pathname;
+setTimeout(()=>{if(location.pathname!==path)return;
+above.map((n)=>{const c=cellFor("tweet-"+n,'<article data-testid="tweet" style="height:'+(n===5001?700:240)+'px"><a href="/x/status/'+n+'" role="link"><time>1h</time></a><p data-testid="tweetText">above '+n+' mutedword</p></article>');c.querySelector("article").addEventListener("click",()=>go("/x/status/"+n));return c}).reverse().forEach((c)=>root.prepend(c));
+S.props={list:[...above.map((n)=>({id:"tweet-"+n})),...after]};
+},window.__chainDelay===undefined?120:window.__chainDelay)};
+render();addEventListener("popstate",render);
 </script>`);
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe><iframe id="g" src="https://x.com/robots.txt?xm-panel=%2Fnotifications"></iframe>`;
 
@@ -573,7 +594,7 @@ const panes = () => postFrameOf().evaluate(() => { const r = (s) => { const e = 
 await p.waitForTimeout(300);
 let pn = await panes();
 const split = Math.round(pn.w * 0.666);
-check("the post scrolls on the left with actions and reply box pinned below, replies on the right", pn.on && pn.focal[0] === 0 && pn.focal[1] === 0 && pn.focal[2] === split && pn.actions[0] === 0 && pn.composer[0] === 0 && pn.bottoms[0] === pn.actions[1] && pn.bottoms[1] === pn.composer[1] && pn.bottoms[2] === pn.h && pn.pc[0] === split, pn);
+check("the post is on the left with actions and reply box pinned below, replies on the right", pn.on && pn.focal[0] === 0 && pn.focal[1] === 0 && pn.focal[2] === split && pn.actions[0] === 0 && pn.composer[0] === 0 && pn.bottoms[0] === pn.actions[1] && pn.bottoms[1] === pn.composer[1] && pn.bottoms[2] === pn.h && pn.pc[0] === split, pn);
 check("the sort button heads the right pane", pn.sortHasButton && pn.sort && pn.sort[0] === split && pn.sort[1] === 0, pn.sort);
 const sortFollows = await postFrameOf().evaluate(async () => { document.querySelector('[data-testid="primaryColumn"]').style.minHeight = "3000px"; window.scrollTo(0, 200); await new Promise((r) => setTimeout(r, 200)); const top = Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top); window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 150)); document.querySelector('[data-testid="primaryColumn"]').style.minHeight = ""; return { top, back: Math.round(document.querySelector("[data-xm-sort]").getBoundingClientRect().top) }; });
 check("the sort button scrolls away with the replies", sortFollows.top === -200 && sortFollows.back === 0, sortFollows);
@@ -612,7 +633,7 @@ check("reopening that post shows the post, not where the window had wandered", p
   const left = () => postFrameOf().evaluate(() => {
     const q = (s) => document.querySelector(s);
     const f = q("[data-xm-focal]"), a = q("[data-xm-actions]"), c = q("[data-xm-composer]");
-    return { focalTop: Math.round(f.getBoundingClientRect().top), focalBottom: Math.round(f.getBoundingClientRect().bottom), scrollTop: f.scrollTop, overflow: getComputedStyle(f).overflowY, articleOverflow: getComputedStyle(f.querySelector("article")).overflowY, actionsTop: Math.round(a.getBoundingClientRect().top), composerTop: Math.round(c.getBoundingClientRect().top), page: scrollY, offset: document.documentElement.style.getPropertyValue("--xm-post-offset") };
+    return { focalTop: Math.round(f.getBoundingClientRect().top), focalBottom: Math.round(f.getBoundingClientRect().bottom), scrollTop: f.scrollTop, overflow: getComputedStyle(f).overflowY, articleOverflow: getComputedStyle(f.querySelector("article")).overflowY, actionsTop: Math.round(a.getBoundingClientRect().top), composerTop: Math.round(c.getBoundingClientRect().top), page: scrollY };
   });
   await postFrameOf().evaluate(() => { document.querySelector("[data-xm-focal] article").style.height = "2000px"; window.scrollTo(0, 0); });
   await p.waitForTimeout(200);
@@ -621,38 +642,212 @@ check("reopening that post shows the post, not where the window had wandered", p
   await p.mouse.wheel(0, 300);
   await p.waitForTimeout(300);
   const moved = await left();
-  if (SAFARI) {
-    check("nothing around the bars clips, which Safari wouldn't draw", atTop.overflow === "visible" && atTop.articleOverflow === "visible", atTop);
-    check("the wheel moves a long post under the bars, the replies stay", moved.focalTop === atTop.focalTop - 300 && moved.scrollTop === 0 && moved.actionsTop === atTop.actionsTop && moved.composerTop === atTop.composerTop && moved.page === 0, { atTop, moved });
-    const slow = await postFrameOf().evaluate(() => {
-      const article = document.querySelector("[data-xm-focal] article");
-      const steps = [0.3, 0.3, 0.3, 0.3].map((deltaY) => !article.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })));
-      return { steps, offset: parseFloat(document.documentElement.style.getPropertyValue("--xm-post-offset")) };
-    });
-    check("slow trackpad fractions add up and stay with the post", slow.steps.every(Boolean) && Math.abs(slow.offset - 301.2) < 0.01, slow);
-    const overSort = await postFrameOf().evaluate(() => {
-      const before = document.documentElement.style.getPropertyValue("--xm-post-offset");
-      const taken = !document.querySelector("[data-xm-sort]").dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
-      return { taken, same: before === document.documentElement.style.getPropertyValue("--xm-post-offset") };
-    });
-    check("the wheel over the sort row goes to the replies, not the post", !overSort.taken && overSort.same, overSort);
-    await p.mouse.wheel(0, 99999);
-    await p.waitForTimeout(300);
-    const end = await left();
-    check("it stops with the post's end above the bars", end.focalBottom === end.actionsTop && end.page === 0, end);
-    await p.mouse.wheel(0, 300);
-    await p.waitForTimeout(300);
-    const beyond = await left();
-    check("past the end the wheel goes to the replies", beyond.focalBottom === end.focalBottom && beyond.page > 0, beyond);
-  } else {
-    check("elsewhere the post scrolls natively in its pane", atTop.overflow === "auto" && moved.scrollTop === 300 && moved.focalTop === atTop.focalTop && moved.actionsTop === atTop.actionsTop, { atTop, moved });
-  }
+  check("nothing around the bars clips, which Safari wouldn't draw", atTop.overflow === "visible" && atTop.articleOverflow === "visible", atTop);
+  check("the wheel moves a long post under the bars, the replies stay", moved.focalTop === atTop.focalTop - 300 && moved.scrollTop === 0 && moved.actionsTop === atTop.actionsTop && moved.composerTop === atTop.composerTop && moved.page === 0, { atTop, moved });
+  const slow = await postFrameOf().evaluate(() => {
+    const article = document.querySelector("[data-xm-focal] article");
+    const steps = [0.3, 0.3, 0.3, 0.3].map((deltaY) => !article.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })));
+    return { steps, offset: -document.querySelector("[data-xm-focal]").getBoundingClientRect().top };
+  });
+  check("slow trackpad fractions add up and stay with the post", slow.steps.every(Boolean) && Math.abs(slow.offset - 301.2) < 0.05, slow);
+  const overSort = await postFrameOf().evaluate(() => {
+    const before = document.querySelector("[data-xm-focal]").getBoundingClientRect().top;
+    const taken = !document.querySelector("[data-xm-sort]").dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true }));
+    return { taken, same: before === document.querySelector("[data-xm-focal]").getBoundingClientRect().top };
+  });
+  check("the wheel over the sort row goes to the replies, not the post", !overSort.taken && overSort.same, overSort);
+  await p.mouse.wheel(0, 99999);
+  await p.waitForTimeout(300);
+  const end = await left();
+  check("it stops with the post's end above the bars", end.focalBottom === end.actionsTop && end.page === 0, end);
+  await p.mouse.wheel(0, 300);
+  await p.waitForTimeout(300);
+  const beyond = await left();
+  check("past the end the wheel goes to the replies", beyond.focalBottom === end.focalBottom && beyond.page > 0, beyond);
+
   await postFrameOf().evaluate(() => { document.querySelector("[data-xm-focal] article").style.height = "300px"; document.querySelector("[data-xm-focal]").scrollTop = 0; window.scrollTo(0, 0); });
   await p.waitForTimeout(200);
-  if (SAFARI) {
-    const short = await left();
-    check("a post that got shorter comes back into its pane", short.focalTop === 0, short);
-  }
+  const short = await left();
+  check("a post that got shorter comes back into its pane", short.focalTop === 0, short);
+}
+
+// ---- the conversation down to a reply, on the left ---------------------------------------
+{
+  const pane = () => postFrameOf().evaluate(() => {
+    const cells = [...document.querySelectorAll("[data-xm-chain]")].map((c) => { const r = c.getBoundingClientRect(); return { text: c.textContent.slice(2, 12), top: Math.round(r.top), bottom: Math.round(r.bottom), left: r.left, width: Math.round(r.width) }; });
+    const f = document.querySelector("[data-xm-focal]");
+    const r = f && f.getBoundingClientRect();
+    const a = document.querySelector("[data-xm-actions]").getBoundingClientRect();
+    const reply = [...document.querySelectorAll('[data-testid="cellInnerDiv"]')].find((c) => !c.hasAttribute("data-xm-chain") && !c.hasAttribute("data-xm-focal"));
+    const rr = reply && reply.getBoundingClientRect();
+    return { cells, focal: f && f.textContent.slice(0, 9), focalTop: r && r.top, focalBottom: r && r.bottom, actionsTop: Math.round(a.top), split: Math.round(a.right), reply: rr && Math.round(rr.left), replyTop: rr && Math.round(rr.top), mid: document.documentElement.hasAttribute("data-xm-has-chain"), page: scrollY, path: location.pathname };
+  });
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(150);
+  // a reply opens with what it answers above it, and stays in the middle as that arrives
+  await p.evaluate(() => { const c = document.querySelector("[data-xm-placed] article"); const a = c.querySelector('a[role="link"]'); a.setAttribute("href", "/x/status/5004"); a.querySelector("time").click(); });
+  await p.waitForTimeout(60);
+  await loadingCleared();
+  await p.waitForTimeout(350);
+  let c = await pane();
+  check("a timestamp opens the post in the window, not on its own", (await postState()).open && (await p.evaluate(() => location.pathname)) === "/home", c.path);
+  check("a reply shows everything above it down to itself, root first, on the left", c.mid && c.cells.map((x) => x.text).join() === "above 5001,above 5002,above 5003" && c.cells.every((x, i) => x.left === 0 && x.width === c.split && (!i || x.top === c.cells[i - 1].bottom)) && c.focal.startsWith("post 5004") && Math.abs(c.focalTop - c.cells[2].bottom) <= 1, c);
+  check("the clicked post is in full view, once what it answers has arrived", Math.abs(c.focalBottom - c.actionsTop) <= 1, c);
+  check("its replies are on the right, from the top", c.reply >= c.split && c.replyTop < 100, c);
+  check("a long post above shows in full", c.cells[0].bottom - c.cells[0].top === 700, c.cells);
+
+  // the wheel takes the pane up through the conversation
+  await p.mouse.move(400, 300);
+  await p.mouse.wheel(0, -120);
+  await p.waitForTimeout(150);
+  const up = await pane();
+  check("the wheel moves the conversation and the post together, the replies stay", Math.abs(up.focalTop - c.focalTop - 120) < 1 && up.cells[0].top === c.cells[0].top + 120 && up.page === 0 && up.actionsTop === c.actionsTop, up);
+  const stack = await postFrameOf().evaluate(() => { const a = document.querySelector("[data-xm-actions]").getBoundingClientRect(); const hit = document.elementFromPoint(100, a.top + 5); return { onBar: !!hit.closest("[data-xm-actions]") }; });
+  check("what slides down stays under the bars", stack.onBar, stack);
+
+  // clicking a reply in the window: the same layout, one further down
+  await postFrameOf().evaluate(() => { window.__chainDelay = 0; });
+  await postFrameOf().locator('[data-testid="cellInnerDiv"]:not([data-xm-chain]):not([data-xm-focal]) p').first().click();
+  await p.waitForTimeout(250);
+  c = await pane();
+  check("clicking a reply in the window shows it in full under the whole conversation", c.path === "/x/status/5900" && c.focal.startsWith("post 5900") && c.cells.length === 4 && Math.abs(c.focalBottom - c.actionsTop) <= 1, c);
+
+  // the browser's buttons work on the window
+  const tabState = () => p.evaluate(() => ({ path: location.pathname, pops: window.__xPops, post: document.documentElement.hasAttribute("data-xm-post-open"), panel: document.documentElement.hasAttribute("data-xm-panel-open"), frame: document.querySelector("#xm-post iframe").contentWindow.location.pathname, len: history.length }));
+  const press = async (way) => { await (way < 0 ? p.goBack({ waitUntil: "commit" }) : p.goForward({ waitUntil: "commit" })); await p.waitForTimeout(250); };
+  const popsBefore = (await tabState()).pops;
+  await press(-1);
+  let tab = await tabState();
+  check("back goes to the previous post in the window, the feed doesn't notice", tab.post && tab.path === "/home" && tab.frame === "/x/status/5004" && tab.pops === popsBefore, tab);
+  await press(1);
+  tab = await tabState();
+  check("forward comes back to the reply", tab.post && tab.path === "/home" && tab.frame === "/x/status/5900" && tab.pops === popsBefore, tab);
+  await press(1);
+  tab = await tabState();
+  check("forward with nothing ahead does nothing", tab.post && tab.frame === "/x/status/5900" && tab.pops === popsBefore, tab);
+  await press(-1);
+  await press(-1);
+  tab = await tabState();
+  check("back past the first post closes the window", !tab.post && tab.path === "/home" && tab.pops === popsBefore, tab);
+  await p.evaluate(() => { const a = document.querySelector('[data-xm-placed] article a[role="link"]'); a.setAttribute("href", "/x/status/5002"); a.querySelector("time").click(); });
+  await p.waitForTimeout(300);
+  tab = await tabState();
+  check("opening another post starts a new past: no way back into the last one", tab.post && tab.frame === "/x/status/5002" && !(await postFrameOf().evaluate(() => window.__xmFrameHistory.canGo(-1))), tab);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  tab = await tabState();
+  check("closing it takes the tab's history back to the feed's own entry", !tab.post && tab.pops === popsBefore && (await p.evaluate(() => !history.state || !history.state.xmGuard)), tab);
+  await p.evaluate(() => { const a = document.querySelector('[data-xm-placed] article a[role="link"]'); a.setAttribute("href", "/x/status/5900"); a.querySelector("time").click(); });
+  await p.waitForTimeout(350);
+  await postFrameOf().evaluate(() => { window.__chainDelay = 0; });
+  // clicking up the conversation
+  await p.mouse.move(400, 300);
+  await p.mouse.wheel(0, -9999);
+  await p.waitForTimeout(150);
+  await postFrameOf().locator("[data-xm-chain] p").nth(1).click();
+  await p.waitForTimeout(250);
+  c = await pane();
+  check("clicking a post above moves up to it, and the old one's cell goes back to the list", c.path === "/x/status/5002" && c.focal.startsWith("post 5002") && c.cells.length === 1, c);
+  const released = await postFrameOf().evaluate(() => [...document.querySelectorAll('[data-testid="cellInnerDiv"]')].filter((e) => e.style.getPropertyValue("top") && !e.hasAttribute("data-xm-chain") && !e.hasAttribute("data-xm-focal")).length);
+  check("no cell keeps a position from the pane", released === 0, released);
+
+  // with room for all of it, nothing moves up, and no space is left above it
+  await postFrameOf().evaluate(() => { history.replaceState(null, "", "/x/status/5500"); dispatchEvent(new PopStateEvent("popstate", { state: null })); });
+  await p.waitForTimeout(200);
+  c = await pane();
+  check("with room for it all, the conversation starts at the top of the pane", c.cells.length === 1 && c.cells[0].top === 12 && Math.abs(c.focalTop - c.cells[0].bottom) <= 1, c);
+
+  // an article has a second bar under its title
+  await postFrameOf().evaluate(() => { history.replaceState(null, "", "/x/status/5600"); dispatchEvent(new PopStateEvent("popstate", { state: null })); });
+  await p.waitForTimeout(250);
+  const article = await postFrameOf().evaluate(() => {
+    const bar = document.querySelector("[data-xm-actions]");
+    const compact = document.getElementById("compact");
+    const sort = document.querySelector("[data-xm-sort]");
+    return { pinned: bar && bar.id, width: bar.offsetWidth, focalWidth: document.querySelector("[data-xm-focal]").offsetWidth, compact: getComputedStyle(compact).display, sort: !!sort && !!sort.querySelector("#sort"), sortLeft: sort && Math.round(sort.getBoundingClientRect().left) };
+  });
+  check("an article pins its own bar across the pane, hides the other, and its sort row heads the replies", article.pinned === "postbar" && article.width === article.focalWidth && article.compact === "none" && article.sort && article.sortLeft === c.split, article);
+  const edge = await postFrameOf().evaluate(() => {
+    const focal = document.querySelector("[data-xm-focal]");
+    const before = focal.getBoundingClientRect().top;
+    const x = focal.offsetWidth - 20;
+    const taken = !document.querySelector("[data-xm-chain] article").dispatchEvent(new WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true, clientX: x, clientY: 100 }));
+    return { taken, moved: focal.getBoundingClientRect().top - before };
+  });
+  check("the wheel works across the whole left pane, right up to its edge", edge.taken && Math.abs(edge.moved - 40) < 1, edge);
+  const covered = await postFrameOf().evaluate(() => {
+    const bar = document.querySelector("[data-xm-actions]").getBoundingClientRect();
+    const head = document.getElementById("head");
+    const delta = bar.top + 10 - head.getBoundingClientRect().top;
+    document.querySelector("[data-xm-chain] article").dispatchEvent(new WheelEvent("wheel", { deltaY: -delta, bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
+    const r = head.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + 100, bar.top + 12);
+    return { headTop: r.top, barTop: bar.top, onBar: !!hit.closest("[data-xm-actions]"), onHead: hit === head };
+  });
+  check("the post's header slides under the bar, not over it", covered.headTop < covered.barTop + 12 && covered.onBar && !covered.onHead, covered);
+
+  // a post with nothing above stays at the top, as before
+  await postFrameOf().evaluate(() => { history.replaceState(null, "", "/x/status/42"); dispatchEvent(new PopStateEvent("popstate", { state: null })); });
+  await p.waitForTimeout(200);
+  c = await pane();
+  check("a post with nothing above it starts at the top of the pane", c.cells.length === 0 && !c.mid && c.focalTop === 0, c);
+  await postFrameOf().evaluate(() => { delete window.__chainDelay; });
+
+  // a post in the side panel opens in the same window, over it
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(150);
+  await railLink("Profile").click();
+  await p.waitForTimeout(500);
+  await frameOf("/inkks").locator('article p[data-testid="tweetText"]').click();
+  await p.waitForTimeout(500);
+  const over = await p.evaluate(() => ({ post: document.documentElement.hasAttribute("data-xm-post-open"), panel: document.documentElement.hasAttribute("data-xm-panel-open"), frame: document.querySelector("#xm-post iframe").contentWindow.location.pathname }));
+  check("a post clicked in the side panel opens in the post window, with its conversation", over.post && over.panel && over.frame === "/z/status/5003", over);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(150);
+  const underneath = await panelState();
+  check("Esc goes back to the side panel, then to the feed", underneath.open && !(await postState()).open, underneath);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  check("and then the feed", !(await panelState()).open);
+
+  // the browser's buttons work on the side panel too
+  await railLink("Profile").click();
+  await p.waitForTimeout(350);
+  const pops0 = await p.evaluate(() => window.__xPops);
+  const framePage = () => frameOf("/inkks") || frameOf("/x/status/9");
+  await framePage().evaluate(() => { history.pushState(null, "", "/x/status/9"); });
+  await p.goBack({ waitUntil: "commit" });
+  await p.waitForTimeout(250);
+  check("back goes through the side panel's own pages", !!frameOf("/inkks") && (await panelState()).open && (await p.evaluate(() => location.pathname)) === "/home", p.frames().map((x) => x.url()));
+  await p.goForward({ waitUntil: "commit" });
+  await p.waitForTimeout(250);
+  check("forward too", !!frameOf("/x/status/9") && (await panelState()).open, p.frames().map((x) => x.url()));
+  await p.goBack({ waitUntil: "commit" });
+  await p.waitForTimeout(250);
+  await p.goBack({ waitUntil: "commit" });
+  await p.waitForTimeout(250);
+  const closedByBack = await panelState();
+  check("back past its first page closes it, on the feed", !closedByBack.open && closedByBack.path === "/home" && (await p.evaluate(() => window.__xPops)) === pops0, closedByBack);
+  await p.goForward({ waitUntil: "commit" }).catch(() => {});
+  await p.waitForTimeout(250);
+  const forwardAfter = await panelState();
+  check("forward afterwards stays on the feed", !forwardAfter.open && forwardAfter.path === "/home", forwardAfter);
+
+  // a quoted post is the window's too
+  const quote = p.locator('[data-xm-placed] [data-testid="quote"]').first();
+  await quote.scrollIntoViewIfNeeded();
+  await quote.locator("time").click();
+  await p.waitForTimeout(350);
+  const quoted = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), path: location.pathname, frame: document.querySelector("#xm-post iframe").dataset.xmHref, left: window.__quoteLeft || 0 }));
+  check("clicking a quoted post opens it in the post window, and X doesn't go there", quoted.open && quoted.path === "/home" && /^\/quoted\/status\/7\d+$/.test(quoted.frame) && quoted.left === 0, quoted);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(150);
+  await quote.locator('[data-testid="tweetPhoto"]').click();
+  await p.waitForTimeout(150);
+  const photo = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), left: window.__quoteLeft || 0 }));
+  check("a photo in a quoted post is still X's to open", !photo.open && photo.left === 1, photo);
+  await p.locator('[data-xm-placed] [data-testid="tweetText"]').nth(3).click();
+  await p.waitForTimeout(300);
 }
 await p.keyboard.press("Escape");
 await p.waitForTimeout(200);
@@ -684,13 +879,13 @@ check("the switch lives in X's own floating button container", flowHome === "Gro
 check("the switch sits above Grok's button, same size and style", flowBtnBox.x === grokBox.x && flowBtnBox.width === grokBox.width && Math.round(flowBtnBox.y + flowBtnBox.height + 12) === Math.round(grokBox.y) && flowStyle.bg === "rgba(0, 0, 0, 0.65)" && flowStyle.r === "16px" && flowStyle.title === "切换到横向流", { flowBtnBox, grokBox, flowStyle });
 await p.locator("#xm-flow-btn").click();
 await p.waitForTimeout(700);
-const flow = () => p.evaluate(() => { const b = document.querySelector("[data-xm-board]"); const cards = [...document.querySelectorAll("[data-xm-placed]")].map((c) => { const [x, y] = c.style.translate.split(" ").map(parseFloat); return { x, y, h: c.offsetHeight, w: c.offsetWidth }; }); return { attr: document.documentElement.getAttribute("data-xm-flow"), pos: getComputedStyle(b).position, sl: b.scrollLeft, sw: b.scrollWidth, cw: b.clientWidth, ch: b.clientHeight, docY: window.scrollY, doc: document.documentElement.scrollHeight, cells: b.children.length, cards, list: window.scroller.props.list.length, stored: localStorage.getItem("xm-flow"), title: document.querySelector("#xm-flow-btn").title }; });
+const flow = () => p.evaluate(() => { const b = document.querySelector("[data-xm-board]"); const cards = [...document.querySelectorAll("[data-xm-placed]")].map((c) => { const [x, y] = c.style.translate.split(" ").map(parseFloat); return { x, y, h: c.offsetHeight, w: c.offsetWidth }; }); return { attr: document.documentElement.getAttribute("data-xm-flow"), pos: getComputedStyle(b).position, sl: b.scrollLeft, sw: b.scrollWidth, cw: b.clientWidth, ch: b.clientHeight, docY: window.scrollY, doc: document.documentElement.scrollHeight, cells: b.children.length, cards, list: window.scroller.props.list.length, title: document.querySelector("#xm-flow-btn").title }; });
 let fl = await flow();
 const colXs = [...new Set(fl.cards.map((c) => c.x))].sort((a, b) => a - b);
 const fits = fl.cards.every((c) => c.y + c.h <= fl.ch);
 const overlaps = (() => { const byX = {}; for (const c of fl.cards) (byX[c.x] = byX[c.x] || []).push(c); return Object.values(byX).some((a) => a.sort((m, n) => m.y - n.y).some((c, i) => i && c.y < a[i - 1].y + a[i - 1].h)); })();
 check("clicking it doesn't reach X's Grok button", (await p.evaluate(() => window.__grokClicks || 0)) === 0);
-check("switching lays cards out in screen-high columns, scrolling sideways", fl.attr === "h" && fl.pos === "fixed" && colXs.length >= 2 && fits && !overlaps && fl.sw > fl.cw && fl.stored === "h" && fl.title === "切换到纵向流", { attr: fl.attr, pos: fl.pos, colXs, fits, overlaps, sw: fl.sw, cw: fl.cw, doc: fl.doc });
+check("switching lays cards out in screen-high columns, scrolling sideways", fl.attr === "h" && fl.pos === "fixed" && colXs.length >= 2 && fits && !overlaps && fl.sw > fl.cw && fl.title === "切换到纵向流", { attr: fl.attr, pos: fl.pos, colXs, fits, overlaps, sw: fl.sw, cw: fl.cw, doc: fl.doc });
 const box = await p.locator("[data-xm-board]").boundingBox();
 await p.mouse.move(box.x + 400, 400);
 await p.mouse.wheel(0, 600);
@@ -821,7 +1016,7 @@ await p.locator("#xm-flow-btn").click();
 await p.waitForTimeout(600);
 fl = await flow();
 const backXs = new Set(fl.cards.map((c) => c.x));
-check("switching back gives the vertical masonry and clears the setting", fl.attr === null && fl.pos !== "fixed" && backXs.size === 4 && fl.stored === null && fl.sl === 0 && fl.docY > 0, { attr: fl.attr, pos: fl.pos, cols: backXs.size, stored: fl.stored, docY: fl.docY });
+check("switching back gives the vertical masonry", fl.attr === null && fl.pos !== "fixed" && backXs.size === 4 && fl.sl === 0 && fl.docY > 0, { attr: fl.attr, pos: fl.pos, cols: backXs.size, docY: fl.docY });
 // a tab left in the other layout keeps its place when it comes back
 const tabTest = await p.evaluate(async () => {
   const S = window.scroller; const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -845,6 +1040,210 @@ await p.locator("[data-xm-placed] a.user").first().click();
 await p.waitForTimeout(500);
 const off = await p.evaluate(() => ({ path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on"), ready: document.documentElement.hasAttribute("data-xm-ready"), panel: document.documentElement.hasAttribute("data-xm-panel-open") }));
 check("other pages turn everything off", off.path === "/someone" && !off.on && !off.ready && !off.panel, off);
+
+// ---- settings ----------------------------------------------------------------------------
+{
+  await p.goto("https://x.com/home");
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  await p.waitForTimeout(300);
+  // An unpacked extension's id is made from its path.
+  const realExt = fs.realpathSync(ext);
+  const extId = createHash("sha256").update(realExt).digest("hex").slice(0, 32).replace(/./g, (h) => String.fromCharCode(97 + parseInt(h, 16)));
+  const popup = await ctx.newPage();
+  popup.on("pageerror", (e) => errors.push("popup: " + e));
+  await popup.goto(`chrome-extension://${extId}/popup.html`);
+  await popup.waitForTimeout(200);
+  const stored = () => popup.evaluate(async () => (await chrome.storage.local.get("settings")).settings);
+  const on = (name, value) => popup.locator(`input[name="${name}"][value="${value}"]`).check({ force: true });
+  const shown = await popup.evaluate(() => ({ flow: document.querySelector('input[name="flow"]:checked')?.value, theme: document.querySelector('input[name="theme"]:checked')?.value, panel: document.querySelector('input[name="panel"]:checked')?.value, w: document.body.offsetWidth }));
+  check("the popup opens with the defaults", shown.flow === "v" && shown.theme === "auto" && shown.panel === "sheet" && shown.w === 320, shown);
+  await p.bringToFront();
+
+  // default flow: live, and what a reload goes back to
+  await on("flow", "h");
+  await p.waitForTimeout(300);
+  check("choosing the sideways default changes an open feed", (await p.evaluate(() => document.documentElement.getAttribute("data-xm-flow"))) === "h");
+  await p.reload();
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  await p.waitForTimeout(200);
+  check("and a new load starts that way", await p.evaluate(() => window.__onAtHead !== undefined && document.documentElement.getAttribute("data-xm-flow") === "h"));
+  await p.locator("#xm-flow-btn").click();
+  await p.waitForTimeout(300);
+  check("the page's switch still flips it", (await p.evaluate(() => document.documentElement.getAttribute("data-xm-flow"))) === null);
+  await p.reload();
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  check("but a reload goes back to the default", (await p.evaluate(() => document.documentElement.getAttribute("data-xm-flow"))) === "h");
+  await on("flow", "v");
+  await p.waitForTimeout(400);
+
+  // muted words: in the feed, then out again
+  const victim = await p.evaluate(() => { const c = [...document.querySelectorAll("[data-xm-placed]")].filter((e) => e.querySelector("article") && !e.hasAttribute("data-xm-join"))[2]; c.id = "victim"; return c.querySelector('[data-testid="tweetText"]').textContent; });
+  const seenMuted = () => p.evaluate(() => { const c = document.getElementById("victim"); return c ? { hidden: c.hasAttribute("data-xm-muted"), display: getComputedStyle(c).display, h: c.offsetHeight } : null; });
+  await popup.locator("#mute").fill(victim.toUpperCase() + "，unrelated\n ");
+  await p.waitForTimeout(1600);
+  const muted = await seenMuted();
+  check("a muted word hides the post whatever its case, and the column closes up", muted && muted.hidden && muted.display === "none" && muted.h === 0, muted);
+  const sameSpot = await p.evaluate(() => { const cards = [...document.querySelectorAll("[data-xm-placed]")].filter((e) => e.offsetHeight > 0).map((e) => { const [x, y] = e.style.translate.split(" ").map(parseFloat); return { x, y, h: e.offsetHeight }; }); const byX = {}; for (const c of cards) (byX[c.x] = byX[c.x] || []).push(c); return Object.values(byX).every((col) => col.sort((a, b) => a.y - b.y).every((c, i) => !i || c.y - (col[i - 1].y + col[i - 1].h) <= 12)); });
+  check("no gap is left where it was", sameSpot);
+  const words = (await stored()).mute;
+  check("words can be split by newlines and commas", words.length === 2 && words[1] === "unrelated", words);
+  await popup.locator("#mute").fill("");
+  await p.waitForTimeout(1600);
+  const unmuted = await seenMuted();
+  check("clearing the word brings it back", unmuted && !unmuted.hidden && unmuted.h > 0, unmuted);
+  // a card muted while out of the mounted range also comes back
+  await popup.locator("#mute").fill("post tweet-");
+  await p.waitForTimeout(1500);
+  const allGone = await p.evaluate(() => [...document.querySelectorAll("[data-xm-board] > div")].filter((c) => c.offsetHeight > 0 && c.querySelector("article")).length);
+  await popup.locator("#mute").fill("");
+  await p.waitForTimeout(1800);
+  const allBack = await p.evaluate(() => [...document.querySelectorAll("[data-xm-placed]")].filter((c) => c.offsetHeight > 0).length);
+  check("muting nearly everything and then nothing fills the feed again", allGone === 0 && allBack > 4, { allGone, allBack });
+
+  // muted words in the post window: replies go, the conversation above doesn't
+  await on("flow", "v");
+  await popup.locator("#mute").fill("mutedword");
+  await p.waitForTimeout(800);
+  await p.evaluate(() => { const a = document.querySelector('[data-xm-placed] article a[role="link"]'); a.setAttribute("href", "/x/status/5003"); a.querySelector("time").click(); });
+  await p.waitForTimeout(800);
+  const inWindow = await postFrameOf().evaluate(() => { const cells = [...document.querySelectorAll('[data-testid="cellInnerDiv"]')]; return { chain: cells.filter((c) => c.hasAttribute("data-xm-chain") && c.offsetHeight > 0).length, reply: cells.filter((c) => c.textContent.includes("reply with")).map((c) => c.offsetHeight), other: cells.filter((c) => c.textContent.includes("reply 5900")).map((c) => c.offsetHeight) }; });
+  check("in the post window a muted reply goes, what the post answers stays", inWindow.chain === 2 && inWindow.reply[0] === 0 && inWindow.other[0] === 120, inWindow);
+  await p.keyboard.press("Escape");
+  await popup.locator("#mute").fill("");
+  await p.waitForTimeout(800);
+
+  // theme: X only reads it starting up, so pages reload, and the real cookie stays
+  const themeOf = (page) => page.evaluate(() => ({ attr: document.documentElement.getAttribute("data-xm-theme"), dark: matchMedia("(prefers-color-scheme: dark)").matches, light: matchMedia("(prefers-color-scheme: light)").matches, cookie: document.cookie, bg: getComputedStyle(document.body).backgroundColor, id: window.__xmLoadMark }));
+  await p.evaluate(() => { window.__xmLoadMark = 1; });
+  await on("theme", "light");
+  await p.waitForTimeout(800);
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  let th = await themeOf(p);
+  check("choosing white reloads the page and shows it white", th.id === undefined && th.attr === "light" && th.light && !th.dark && th.cookie.includes("night_mode=0") && th.bg === "rgb(255, 255, 255)", th);
+  const realCookie = await ctx.cookies("https://x.com");
+  check("without touching the real cookie", !realCookie.some((c) => c.name === "night_mode"), realCookie.map((c) => c.name));
+  const pinCheck = await p.evaluate(() => { document.cookie = "night_mode=0; path=/"; document.cookie = "night_mode=; Max-Age=0; path=/"; document.cookie = "night_mode=0; Max-Age=999; path=/"; return document.cookie; });
+  const stillNone = await ctx.cookies("https://x.com");
+  check("and X writing back what it read doesn't pin it", pinCheck.includes("night_mode=0") && !stillNone.some((c) => c.name === "night_mode"), stillNone.map((c) => c.name));
+  await railLink("Notifications").click();
+  await p.waitForTimeout(700);
+  const frameTheme = await themeOf(frameOf("/notifications"));
+  check("the side panel has the same theme", frameTheme.attr === "light" && frameTheme.light && frameTheme.bg === "rgb(255, 255, 255)", frameTheme);
+  await p.keyboard.press("Escape");
+  await on("theme", "dark");
+  await p.waitForTimeout(800);
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  th = await themeOf(p);
+  check("and black", th.attr === "dark" && th.dark && th.cookie.includes("night_mode=2"), th);
+  await on("theme", "auto");
+  await p.waitForTimeout(800);
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  th = await themeOf(p);
+  check("following X again leaves no trace", th.attr === null && !th.cookie.includes("night_mode"), th);
+
+  // the rail's links
+  await on("panel", "same");
+  await p.waitForTimeout(250);
+  await railLink("Notifications").click();
+  await p.waitForTimeout(500);
+  const jumped = await p.evaluate(() => ({ path: location.pathname, panel: document.documentElement.hasAttribute("data-xm-panel-open") }));
+  check("set to jump, a rail link leaves the feed like X's own", jumped.path === "/notifications" && !jumped.panel, jumped);
+  await p.goto("https://x.com/home");
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  await on("panel", "tab");
+  await p.waitForTimeout(250);
+  const before = ctx.pages().length;
+  await railLink("Bookmarks").click();
+  await p.waitForTimeout(500);
+  const opened = ctx.pages().slice(before);
+  const tabState = { added: opened.length, url: opened[0] && opened[0].url(), path: await p.evaluate(() => location.pathname), panel: await p.evaluate(() => document.documentElement.hasAttribute("data-xm-panel-open")) };
+  check("set to a new tab, it opens there and the feed stays", tabState.added === 1 && tabState.url === "https://x.com/i/bookmarks" && tabState.path === "/home" && !tabState.panel, tabState);
+  for (const extra of opened) await extra.close();
+  await railLink("Bookmarks").click({ noWaitAfter: true }).catch(() => {});
+  await p.waitForTimeout(300);
+  for (const extra of ctx.pages().slice(before)) await extra.close();
+  await on("panel", "sheet");
+  await p.waitForTimeout(250);
+  await railLink("Bookmarks").click();
+  await p.waitForTimeout(400);
+  check("and back to the side panel", (await panelState()).open);
+  await on("panel", "same");
+  await p.waitForTimeout(250);
+  check("changing away closes an open one", !(await panelState()).open);
+  await on("panel", "sheet");
+
+  // how long a hidden page keeps its state
+  await railLink("Notifications").click();
+  await p.waitForTimeout(500);
+  await frameOf("/notifications").evaluate(() => { window.__keptMark = 1; });
+  await p.mouse.click(1400, 400);
+  await p.waitForTimeout(200);
+  await railLink("Notifications").click();
+  await p.waitForTimeout(250);
+  check("by default a hidden page comes back as it was", (await frameOf("/notifications").evaluate(() => window.__keptMark)) === 1);
+  await p.mouse.click(1400, 400);
+  await p.waitForTimeout(200);
+  await popup.locator("#panelKeep").selectOption("5");
+  await p.waitForTimeout(250);
+  await railLink("Notifications").click();
+  await p.waitForTimeout(250);
+  check("with a time set, it still does inside that time", (await frameOf("/notifications").evaluate(() => window.__keptMark)) === 1);
+  await p.mouse.click(1400, 400);
+  await p.waitForTimeout(200);
+  await p.evaluate(() => { for (const f of document.querySelectorAll("#xm-panel iframe")) f.__xmHiddenAt -= 6 * 60000; });
+  await railLink("Notifications").click();
+  await p.waitForTimeout(700);
+  const fresh = await frameOf("/notifications").evaluate(() => ({ mark: window.__keptMark, panel: document.documentElement.hasAttribute("data-xm-panel") }));
+  check("past it, the page starts over", fresh.mark === undefined && fresh.panel, fresh);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+  await p.evaluate(() => { const a = document.querySelector('[data-xm-placed] article a[role="link"]'); a.setAttribute("href", "/x/status/42"); a.querySelector("time").click(); });
+  await p.waitForTimeout(600);
+  await postFrameOf().evaluate(() => { window.__keptMark = 1; });
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+  const reopenPost = () => p.evaluate(() => document.querySelector('[data-xm-placed] article a[role="link"][href="/x/status/42"] time').click());
+  await reopenPost();
+  await p.waitForTimeout(300);
+  check("the same post reopened inside the time is as it was", (await postFrameOf().evaluate(() => window.__keptMark)) === 1);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+  await p.evaluate(() => { const now = Date.now; Date.now = () => now() + 6 * 60000; });
+  await reopenPost();
+  await p.waitForTimeout(800);
+  const freshPost = await postFrameOf().evaluate(() => ({ mark: window.__keptMark, path: location.pathname }));
+  check("and past it, the post window loads again", freshPost.mark === undefined && freshPost.path === "/x/status/42", freshPost);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+  await popup.locator("#panelKeep").selectOption("0");
+  await p.goto("https://x.com/home");
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+
+  // columns: the popup and Alt keys say the same thing
+  await popup.locator("#cols").selectOption("2");
+  await p.waitForTimeout(400);
+  const colCount = () => p.evaluate(() => new Set([...document.querySelectorAll("[data-xm-placed]")].map((c) => c.style.translate.split(" ")[0])).size);
+  check("the column count applies at once", (await colCount()) === 2, await colCount());
+  await p.bringToFront();
+  await p.keyboard.press("Alt+Equal");
+  await p.waitForTimeout(400);
+  check("Alt + = goes through to the setting", (await colCount()) === 3 && (await stored()).cols === 3, (await stored()).cols);
+  await p.keyboard.press("Alt+Digit0");
+  await p.waitForTimeout(300);
+
+  // what the old keys had stored becomes the default, once
+  await popup.evaluate(() => chrome.storage.local.remove("settings"));
+  await p.evaluate(() => { localStorage.removeItem("xm-settings"); localStorage.setItem("xm-flow", "h"); localStorage.setItem("xm-cols", "5"); });
+  await p.reload();
+  await p.waitForSelector("[data-xm-placed]", { timeout: 5000 });
+  await p.waitForTimeout(300);
+  const seeded = await p.evaluate(() => ({ flow: document.documentElement.getAttribute("data-xm-flow"), oldFlow: localStorage.getItem("xm-flow"), oldCols: localStorage.getItem("xm-cols") }));
+  const seededStore = await stored();
+  check("what the old switch had stored becomes the default", seeded.flow === "h" && !seeded.oldFlow && !seeded.oldCols && seededStore.flow === "h" && seededStore.cols === 5, { seeded, seededStore });
+  await popup.evaluate(() => chrome.storage.local.set({ settings: {} }));
+  await popup.close();
+  await p.waitForTimeout(300);
+}
 
 // ---- errors fall back to X's own page, with nothing left on top ---------------------
 await p.goto("https://x.com/home");

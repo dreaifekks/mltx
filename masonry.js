@@ -31,9 +31,7 @@
   const KEEP_SCREENS = 0.75; // cards stay mounted this many screens around the view
   const FILL_SCREENS = 2.5; // new cards are placed ahead of the view by this many screens
   const ATTACH_TIMEOUT = 8000; // ms on /home without a list before giving up
-  const COLS_KEY = "xm-cols";
   const NAV_KEY = "xm-nav";
-  const FLOW_KEY = "xm-flow";
   const MAX_THREAD = 12; // posts a conversation in the feed can span
   const REPLY_SHARE = 0.6; // sideways: how much of a column a reply can keep in a squeezed conversation
   const FLOW_LOOKBACK = 3; // sideways: how many recent columns a card may fill a gap in
@@ -57,8 +55,6 @@
   // isolation boundary: the frame is x.com's own code, same origin as the page.
   const FRAME_SANDBOX = "allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads";
   const FRAME_ALLOW = "autoplay; fullscreen; clipboard-write; encrypted-media";
-  // Parts of a card that do something of their own when clicked.
-  const CARD_CONTROLS = 'button, input, textarea, video, [role="button"], [role="menuitem"], [role="slider"], [role="radio"], [role="checkbox"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid^="card."], [data-testid="cardPoll"]';
   const TABS_CLOSE_DELAY = 180; // ms, so moving from the icon to the list doesn't close it
 
   const NOT_A_CARD = /^\$footer$/; // the loading spinner at the end of the list
@@ -81,11 +77,12 @@
   const IDLE_EVERY = 6;
 
   const root = document.documentElement;
+  const common = window.__xmCommon;
   const boards = new Map(); // cacheKey -> board; survives leaving and coming back
   const lists = []; // list instances X has created
   let latestList = window.scroller;
   let current = null; // { S, el, vp, st, board }
-  let cfgCols = readCols();
+  let cfgCols = common.settings().cols;
   let homeSince = 0;
   let errors = 0;
   let themeAt = 0;
@@ -93,7 +90,7 @@
   let frameCount = 0;
   let lastPath = "";
   let navOpen = localStorage.getItem(NAV_KEY) === "open";
-  let flowSideways = localStorage.getItem(FLOW_KEY) === "h";
+  let flowSideways = common.settings().flow === "h"; // the default until the switch is used
   let flowBtn = null;
   let flowPlacedAt = 0;
   let gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null };
@@ -114,6 +111,9 @@
   let postFrame = null;
   let postHref = null;
   let postReadyTimer = 0;
+  let postHiddenAt = 0;
+  let backGuardOn = false;
+  let backGuardMoves = 0; // our own traversals on their way, whose popstate isn't anyone else's
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -129,10 +129,18 @@
     },
   });
 
-  function readCols() {
-    const n = parseInt(localStorage.getItem(COLS_KEY) || "", 10);
-    return n >= 1 && n <= 8 ? n : 0;
-  }
+  common.onSettings((next, before) => {
+    if (next.flow !== before.flow) {
+      flowSideways = next.flow === "h";
+      flowPlacedAt = 0;
+    }
+    cfgCols = next.cols;
+    if (next.panel !== "sheet") closePanel();
+    if (JSON.stringify(next.mute) !== JSON.stringify(before.mute)) {
+      for (const board of boards.values()) forgetEmpty(board);
+    }
+    quietFrames = 0;
+  });
 
   // ---- routes -------------------------------------------------------------
 
@@ -276,6 +284,16 @@
       if (key && key === moduleKey) board.groupPrev.set(id, order[k - 1]);
       moduleKey = key;
     }
+  }
+
+  // Muted words changed, so cards passed over for having no height may have one now. They
+  // come back the way any card does that got its height back.
+  function forgetEmpty(board) {
+    for (const id of board.skipped) {
+      board.seen.delete(id);
+      board.heights.delete(id);
+    }
+    board.skipped.clear();
   }
 
   function forgetDropped(board, byId, order) {
@@ -758,6 +776,7 @@
     for (const [id, comp] of S._cells) {
       const cell = comp && comp.getElement && comp.getElement();
       if (!cell) continue;
+      common.checkCell(cell); // before measuring: a muted card has no height
       // Sideways a card can be held shorter than it is; the layout wants its real height.
       const h = b.flow === "h" ? Math.max(cell.scrollHeight, cell.offsetHeight) : cell.offsetHeight;
       const seen = b.seen.get(id);
@@ -998,9 +1017,7 @@
       flowBtn = makeButton("xm-flow-btn", "", "");
       flowBtn.addEventListener("click", (e) => {
         e.stopPropagation(); // it's inside X's button area, and isn't meant to open anything there
-        flowSideways = !flowSideways;
-        if (flowSideways) localStorage.setItem(FLOW_KEY, "h");
-        else localStorage.removeItem(FLOW_KEY);
+        flowSideways = !flowSideways; // until the page reloads; the default is in the settings
         flowPlacedAt = 0;
         quietFrames = 0;
       });
@@ -1059,6 +1076,68 @@
   root.addEventListener("pointerleave", scheduleTabsClose, { passive: true });
   addEventListener("blur", scheduleTabsClose);
 
+  // ---- the browser's back and forward buttons --------------------------------
+
+  const overlayShowing = () => !!panelHref || root.hasAttribute("data-xm-post-open");
+
+  function moveInHistory(delta) {
+    backGuardMoves++;
+    history.go(delta);
+  }
+
+  // While a panel or the post window shows, the buttons work on it. A page can't cancel them,
+  // so the tab's history gets an entry either side of the one in use, and arriving on one of
+  // those means the button was pressed. Called whenever the overlays change. The entries are
+  // copies of the feed's, in case they ever reach X, and left forward of it afterwards they
+  // do nothing.
+  function syncBackGuard() {
+    if (backGuardMoves) return; // comes back here when that lands
+    const showing = overlayShowing();
+    if (showing && !backGuardOn) {
+      backGuardOn = true;
+      history.pushState({ ...history.state, xmGuard: "middle" }, "");
+      history.pushState({ ...history.state, xmGuard: "forward" }, "");
+      moveInHistory(-1);
+    } else if (!showing && backGuardOn) {
+      backGuardOn = false;
+      // Unless X went somewhere itself, which already took us off them.
+      if (history.state && history.state.xmGuard === "middle") moveInHistory(-1);
+    }
+  }
+
+  // Registered before X's router, so what's meant for the overlay never reaches it.
+  addEventListener("popstate", (e) => {
+    if (backGuardMoves) {
+      backGuardMoves--;
+      e.stopImmediatePropagation();
+      syncBackGuard();
+    } else if (backGuardOn) {
+      e.stopImmediatePropagation();
+      const delta = history.state && history.state.xmGuard === "forward" ? 1 : -1;
+      moveInHistory(-delta);
+      overlayGo(delta);
+    }
+  });
+
+  // Through the page's own history, then back out of it: past its first page closes it.
+  function overlayGo(delta) {
+    const frame = root.hasAttribute("data-xm-post-open") ? postFrame : panelFrames.get(panelHref);
+    let pages = null;
+    try {
+      pages = frame.contentWindow.__xmFrameHistory;
+    } catch {}
+    if (pages && pages.canGo(delta)) pages.go(delta);
+    else if (delta < 0) closeTopmost();
+  }
+
+  // ---- panel contents ---------------------------------------------------------
+
+  // Whether a page hidden since then should start over rather than come back as it was.
+  function expired(hiddenAt) {
+    const minutes = common.settings().panelKeep;
+    return !!minutes && !!hiddenAt && Date.now() - hiddenAt >= minutes * 60000;
+  }
+
   // ---- side panel ----------------------------------------------------------
 
   // The rail's links open as a sheet over the feed, which stays mounted underneath.
@@ -1115,7 +1194,8 @@
     let frame = panelFrames.get(href);
     if (frame) {
       panelFrames.delete(href);
-      if (frame.__xmLoaded && !frameIsOurs(frame)) frame.src = panelEntryUrl(href); // it never got a page
+      // Over its time, or it never got a page.
+      if (expired(frame.__xmHiddenAt) || (frame.__xmLoaded && !frameIsOurs(frame))) frame.src = panelEntryUrl(href);
     } else {
       frame = document.createElement("iframe");
       frame.setAttribute("sandbox", FRAME_SANDBOX);
@@ -1127,7 +1207,10 @@
     }
     panelFrames.set(href, frame);
     for (const f of panelFrames.values()) {
-      if (f !== frame && f.hasAttribute("data-xm-shown")) pauseMedia(f);
+      if (f !== frame && f.hasAttribute("data-xm-shown")) {
+        pauseMedia(f);
+        f.__xmHiddenAt = Date.now();
+      }
       f.toggleAttribute("data-xm-shown", f === frame);
     }
     for (const [h, f] of panelFrames) {
@@ -1141,6 +1224,7 @@
     markLink(link);
     setTabsOpen(false);
     root.setAttribute("data-xm-panel-open", "");
+    syncBackGuard();
   }
 
   // ---- post view -----------------------------------------------------------
@@ -1169,6 +1253,7 @@
       const win = postFrame.contentWindow;
       if (win.location.origin !== location.origin || !frameIsOurs(postFrame)) return false;
       if (win.location.pathname !== href) {
+        if (win.__xmFrameHistory) win.__xmFrameHistory.forget(); // a new visit has no past
         win.history.replaceState(null, "", href);
         win.dispatchEvent(new win.PopStateEvent("popstate", { state: null }));
       }
@@ -1186,12 +1271,15 @@
     }
   }
 
-  function openPost(href) {
-    closePanel();
+  // Over the side panel if it came from there, so closing it goes back to that page.
+  function openPost(href, overPanel) {
+    if (!overPanel) closePanel();
     setTabsOpen(false);
     buildPost();
     root.setAttribute("data-xm-post-open", "");
-    if (postFrame && href === postHref && postShows(href)) return;
+    syncBackGuard();
+    const stale = expired(postHiddenAt);
+    if (postFrame && href === postHref && postShows(href) && !stale) return;
     postHref = href;
     root.setAttribute("data-xm-post-loading", "");
     clearTimeout(postReadyTimer);
@@ -1208,14 +1296,16 @@
       return;
     }
     postFrame.dataset.xmHref = href;
-    if (!pointPostFrame(href)) postFrame.src = panelEntryUrl(href);
+    if (stale || !pointPostFrame(href)) postFrame.src = panelEntryUrl(href);
   }
 
   function closePost() {
     resetGesture();
     postLoaded();
     if (postFrame) pauseMedia(postFrame);
+    if (root.hasAttribute("data-xm-post-open")) postHiddenAt = Date.now();
     root.removeAttribute("data-xm-post-open");
+    syncBackGuard();
   }
 
   addEventListener("message", (e) => {
@@ -1224,62 +1314,53 @@
     if (e.data.xm === "post-ready") {
       // A message about the post before this one mustn't uncover this one.
       if (fromPost && postHref && postHref.endsWith(`/status/${e.data.id}`)) postLoaded();
-    } else if (e.data.xm === "close") {
-      if (!fromPost && ![...panelFrames.values()].some((f) => f.contentWindow === e.source)) return;
-      closePost();
-      closePanel();
+      return;
+    }
+    const fromPanel = [...panelFrames.values()].some((f) => f.contentWindow === e.source);
+    if (e.data.xm === "close") {
+      if (fromPost || fromPanel) closeTopmost();
+    } else if (e.data.xm === "open-post" && fromPanel) {
+      const path = common.postPath(e.data.href);
+      if (path) openPost(path, true);
     }
   });
 
+  function closeTopmost() {
+    if (root.hasAttribute("data-xm-post-open")) closePost();
+    else closePanel();
+  }
+
   addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
-    closePost();
-    closePanel();
+    closeTopmost();
   });
 
-  // A click on a card opens it, the same clicks that would go to the post page. Buttons,
-  // profile links, hashtags and photos keep doing what they do.
+  // A click on a card opens it, the same clicks that would go to the post page.
   addEventListener(
     "click",
     (e) => {
       const t = e.target;
       if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const article = t.closest('[data-xm-board] article[data-testid="tweet"]');
-      if (!article) {
-        // A conversation's "show more replies" row links to the post page, so it opens the
-        // same way a post does.
-        const more = t.closest('[data-xm-board] a[href^="/i/status/"]');
-        if (!more) return;
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        openPost(more.getAttribute("href"));
-        return;
-      }
-      const time = article.querySelector('a[href*="/status/"] time');
-      const statusLink = time && time.closest("a");
-      if (!statusLink) return;
-      if (!t.closest('[data-testid="tweet-text-show-more-link"]')) {
-        const link = t.closest("a[href]");
-        if (link && link !== statusLink) return;
-        if (t.closest(CARD_CONTROLS)) return;
-        // A quoted post is a link of its own; X goes there.
-        const quote = t.closest('[role="link"]');
-        if (quote && quote !== article && article.contains(quote)) return;
-        if (String(getSelection())) return; // selecting text, not opening
-      }
+      const path = common.clickedPost(t, "[data-xm-board]");
+      if (!path) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      openPost(statusLink.getAttribute("href"));
+      openPost(path);
     },
     true,
   );
 
   function closePanel() {
-    if (panelHref && panelFrames.has(panelHref)) pauseMedia(panelFrames.get(panelHref));
+    const frame = panelHref && panelFrames.get(panelHref);
+    if (frame) {
+      pauseMedia(frame);
+      frame.__xmHiddenAt = Date.now();
+    }
     panelHref = null;
     markLink(null);
     root.removeAttribute("data-xm-panel-open");
+    syncBackGuard();
   }
 
   addEventListener(
@@ -1302,10 +1383,14 @@
         }
         return;
       }
+      const href = link.getAttribute("href");
+      const opensIn = common.settings().panel;
+      // What X opens as a dialog stays over the feed however pages open.
+      if (opensIn === "same" || (opensIn === "tab" && OVERLAY_ROUTE.test(href))) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      const href = link.getAttribute("href");
-      if (href === panelHref) closePanel();
+      if (opensIn === "tab") window.open(href, "_blank", "noopener");
+      else if (href === panelHref) closePanel();
       else openPanel(href, link);
     },
     true,
@@ -1511,8 +1596,7 @@
       e.preventDefault();
       cfgCols = next;
       quietFrames = 0;
-      if (next) localStorage.setItem(COLS_KEY, String(next));
-      else localStorage.removeItem(COLS_KEY);
+      common.update({ cols: next });
     },
     true,
   );

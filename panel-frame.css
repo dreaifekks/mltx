@@ -1,3 +1,21 @@
+/* Every x.com frame: what the settings ask of the page. */
+
+/* A post with a muted word. Not the one that was opened, or what it answers. */
+[data-testid="cellInnerDiv"][data-xm-muted]:not([data-xm-focal], [data-xm-chain]) {
+  display: none !important;
+}
+
+/* From the first paint, before X has read the theme it's shown. */
+html[data-xm-theme="dark"],
+html[data-xm-theme="dark"] body {
+  background-color: #000 !important;
+}
+
+html[data-xm-theme="light"],
+html[data-xm-theme="light"] body {
+  background-color: #fff !important;
+}
+
 /* X's own page inside the side panel: just the content column. */
 
 html[data-xm-panel] header[role="banner"],
@@ -41,6 +59,7 @@ html[data-xm-post] main [data-testid="primaryColumn"] {
   flex-shrink: 0 !important;
   padding-top: var(--xm-right-top, 53px);
   box-sizing: border-box;
+  border-left: 1px solid rgb(127 127 127 / 0.28) !important;
 }
 
 html[data-xm-post] main :has(> [data-testid="primaryColumn"]) {
@@ -48,27 +67,32 @@ html[data-xm-post] main :has(> [data-testid="primaryColumn"]) {
   max-width: none !important;
 }
 
-/* The post: its own pane and its own scrolling, starting at the top. */
+/* Hidden while the window moves on to another post, until that one is in place. */
+html[data-xm-post-pending] main {
+  visibility: hidden !important;
+}
+
+/* The post. The wheel moves it under the bars, with panel-frame.js setting top: nothing
+   around the bars may clip, because Safari wouldn't draw them. */
 html[data-xm-post] [data-xm-focal] {
   position: fixed !important;
-  top: 0 !important;
+  top: 0;
   left: 0 !important;
-  bottom: var(--xm-left-bottom, 110px) !important;
+  bottom: auto !important;
   width: var(--xm-split) !important;
+  min-height: calc(100vh - var(--xm-left-bottom, 110px));
   transform: none !important;
   transition: none !important;
   will-change: auto !important;
   opacity: 1 !important;
-  z-index: 1;
-  overflow-x: hidden;
-  overflow-y: auto;
+  z-index: 2; /* its bars stay above the conversation sliding under them */
+  overflow: visible !important;
   display: flex !important;
   flex-direction: column;
   justify-content: flex-start;
   box-sizing: border-box;
   padding: 16px 12px;
   background: var(--xm-canvas, Canvas);
-  border-right: 1px solid rgb(127 127 127 / 0.28);
 }
 
 html[data-xm-post] [data-xm-focal] > * {
@@ -76,20 +100,45 @@ html[data-xm-post] [data-xm-focal] > * {
 }
 
 html[data-xm-post] [data-xm-focal] article {
+  overflow: visible !important;
   border-bottom-width: 0 !important;
 }
 
-/* Safari: nothing around the bars may clip, so the post moves instead of scrolling. See
-   movesPost in panel-frame.js. */
-html[data-xm-post][data-xm-moves-post] [data-xm-focal] {
-  overflow: visible !important;
-  top: calc(-1 * var(--xm-post-offset, 0px)) !important;
-  bottom: auto !important;
-  min-height: calc(100vh - var(--xm-left-bottom, 110px));
+/* X wraps nearly everything in position: relative, z-index: 0, which would shut the bars in
+   there, under the post's own header at z-index: 2 when it slides beneath them. */
+html[data-xm-post] [data-xm-focal] :has(:is([data-xm-actions], [data-xm-composer])) {
+  z-index: auto !important;
 }
 
-html[data-xm-post][data-xm-moves-post] [data-xm-focal] article {
-  overflow: visible !important;
+html[data-xm-post] [data-xm-spare-bar] {
+  display: none !important;
+}
+
+/* With a conversation above, the post has its own height, to know how far up to move it. */
+html[data-xm-post][data-xm-has-chain] [data-xm-focal] {
+  min-height: 0;
+  padding-top: 0;
+}
+
+/* The conversation above the post, root first, read down to it. */
+html[data-xm-post] [data-xm-chain] {
+  position: fixed !important;
+  top: 0;
+  left: 0 !important;
+  width: var(--xm-split) !important;
+  transform: none !important;
+  transition: none !important;
+  will-change: auto !important;
+  opacity: 1 !important;
+  z-index: 1;
+  overflow: hidden !important;
+  box-sizing: border-box;
+  padding: 0 12px;
+  background: var(--xm-canvas, Canvas);
+}
+
+html[data-xm-post] [data-xm-chain] article {
+  border-bottom-width: 0 !important;
 }
 
 /* Pinned below the post. The left pane's bottom edge follows their height, so the reply
@@ -99,13 +148,13 @@ html[data-xm-post] [data-xm-actions] {
   left: 0;
   bottom: var(--xm-composer-height, 0px);
   width: var(--xm-split);
-  z-index: 2;
+  max-width: none !important;
+  z-index: 3;
   margin: 0 !important;
   padding: 0 16px !important;
   box-sizing: border-box;
   background: var(--xm-canvas, Canvas);
   border-top: 1px solid rgb(127 127 127 / 0.28) !important;
-  border-right: 1px solid rgb(127 127 127 / 0.28);
   border-bottom-width: 0 !important;
 }
 
@@ -114,13 +163,12 @@ html[data-xm-post] [data-xm-composer] {
   left: 0;
   bottom: 0;
   width: var(--xm-split);
-  z-index: 2;
+  z-index: 3;
   max-height: 45vh;
   overflow-y: auto;
   box-sizing: border-box;
   background: var(--xm-canvas, Canvas);
   border-top: 1px solid rgb(127 127 127 / 0.28);
-  border-right: 1px solid rgb(127 127 127 / 0.28);
 }
 
 /* Heads the replies, at the top of the right pane. */
