@@ -4,9 +4,8 @@
 
 ## 提交前
 
-- [ ] 在前台确认帖子浮窗和左栏面板不再显示“历史”页。
-- [ ] 把 `PRIVACY.md` 合入 `master`，否则隐私政策链接打不开。
-- [ ] 准备审核用的 X 测试账号，填进最后的测试说明。
+- [x] 在前台确认帖子浮窗和左栏面板不再显示“历史”页。
+- [ ] 把 `PRIVACY.md` 推到 `master`，否则隐私政策链接打不开。
 
 ## 上传包
 
@@ -18,19 +17,17 @@
 
 - **语言：** 默认语言是英文，再添加简体中文和日文。摘要会从 `_locales` 自动读取，三种语言的描述分别粘贴下面的内容。
 - **类别：** 选 Social Networking。如果没有这一项，选 Functionality & UI。
-- **商店图标：** `icons/icon-128.png`
-- **小型宣传图：** `store/promo-small-440x280.png`
 - **主页和支持链接：** `https://github.com/dreaifekks/mltx`
-- **截图（1280x800）：** 每种语言都放瀑布流那张，再加对应语言的设置页。
+- **图片：** 都在 `store/upload/`，都是 PNG。截图和宣传图没有透明通道，图标的透明是允许的。
 
-| 语言 | 文件（都在 `store/screenshots/`） |
-|---|---|
-| 全部 | `1-masonry.png` |
-| 简体中文 | `2-settings-zh.png` |
-| 英文 | `3-settings-en.png` |
-| 日文 | `4-settings-ja.png` |
+| 后台栏位 | 文件 | 尺寸 |
+|---|---|---|
+| 商店图标（Store icon），三种语言共用 | `icon-128.png` | 128x128 |
+| 截图（Screenshots），每种语言 2 张 | `<语言>/screenshot-1-masonry-1280x800.png`、`<语言>/screenshot-2-settings-1280x800.png` | 1280x800 |
+| 小型宣传图（Small promo tile），必填 | `<语言>/promo-small-440x280.png` | 440x280 |
+| 顶部宣传图（Marquee promo tile），可选 | 没有 | 1400x560 |
 
-横向流、帖子浮窗和侧边面板的截图还没有，建议在前台补拍。发布前注意遮挡别人的帖子和你的账号信息。
+`<语言>` 是 `zh`、`en`、`ja`。瀑布流截图三种语言共用一张，里面 X 的数字是中文界面的写法，比如「6.7万」。横向流、帖子浮窗和侧边面板的截图还没有，要补拍的话注意遮挡别人的帖子和你的账号信息。
 
 ### 描述：英文
 
@@ -151,11 +148,11 @@ https://github.com/dreaifekks/mltx/blob/master/PRIVACY.md
 
 ## 测试说明（Test instructions）
 
-提交前替换账号那一行。首页时间线必须登录才能看，不提供账号可能因为无法测试而被拒。
+不需要提供专门的测试账号，审核员用任意 X 账号登录就能测。
 
 ```
-Testing needs an x.com account, because the home timeline requires login.
-Test account: <username and password, or remove this line>
+Testing needs a signed-in x.com account, because the home timeline requires login. Any
+account works; nothing is tied to a particular one.
 
 1. Sign in at https://x.com/home in a window at least 900px wide. The timeline becomes
    a multi-column masonry.
