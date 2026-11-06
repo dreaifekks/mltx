@@ -61,7 +61,10 @@ Needs Chrome, Firefox 128 or Safari 18.4 and up. The Firefox zip isn't signed: l
 - The toolbar icon opens the settings: muted words, default flow, theme (follow X, black
   or white), whether the rail's links open in the side panel, in the same tab or in a new
   tab, the side panel's refresh time (a hidden page past it loads again when reopened, in
-  the post window too), and the column count.
+  the post window too), the column count, and the language.
+- The settings and the hints on the extension's buttons come in Chinese, English and
+  Japanese. They follow the browser's languages until one is chosen, and fall back to
+  English. X's own text stays in the language set on X.
   Everything saves as it changes and reaches open pages at
   once, except that changing the theme reloads them, since X only reads it starting up.
 - Muted words hide posts in the feed, the post window's replies and the side panels, by
@@ -80,6 +83,17 @@ It depends on X's internals: `window.scroller`, and on that object `_viewport`,
 `_cells`, `_rootRef`, `_getHeight`, `_scheduleCriticalUpdate`, `props.list`,
 `props.cacheKey`. If those change, the list does not attach and the page falls
 back to X's normal layout after 8 seconds, or after 3 errors in a row.
+
+The content scripts are grouped in `manifest.json` so that each lists what it needs ahead
+of it, with `common.js` in both of its entries. Chrome only promises the order inside one
+entry: across entries `panel-frame.js` has run first on real pages, leaving the panel on
+`/i/history` and the post window in one column. `test/mock-e2e.mjs` checks the listing.
+
+The words live in `i18n.js`, because the page's own world can't reach `chrome.i18n` and it
+can't follow the language setting. `_locales` only holds what the manifest shows.
+
+`safari-entry.js` is the route that writes X's page into a frame, since Safari ignores
+`frame-rules.json`. Only the Safari build loads or contains it (`scripts/safari-manifest.mjs`).
 
 Settings live in the extension's storage. `settings-bridge.js`, the only part in the
 extension's own world, copies them to `localStorage` under `xm-settings`, so `common.js`

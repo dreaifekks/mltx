@@ -46,9 +46,9 @@
   // X's service worker answers navigations to /home, /notifications, /explore, /<user> and
   // others from a cached page that says X-Frame-Options: DENY, and that never reaches
   // frame-rules.json. It leaves this route to the network; panel-frame.js then swaps in
-  // the real address before X starts. Safari ignores frame-rules.json, so it starts from
-  // a page without the header instead, and panel-frame.js writes X's page into it.
-  const PANEL_ENTRY = navigator.vendor.startsWith("Apple") ? "/robots.txt" : "/i/history";
+  // the real address before X starts. Safari ignores frame-rules.json, so safari-entry.js
+  // sets another route there, one that starts from a page without the header.
+  const PANEL_ENTRY = window.__xmPanelEntry || "/i/history";
   const PANEL_RETRY_MS = 5000;
   const POST_READY_TIMEOUT = 5000; // ms before showing the post window whatever state it's in
   // No allow-top-navigation, so a stray link can't send the feed away. This isn't an
@@ -78,6 +78,7 @@
 
   const root = document.documentElement;
   const common = window.__xmCommon;
+  const say = (key) => window.__xmI18n.t(common.settings().lang, key);
   const boards = new Map(); // cacheKey -> board; survives leaving and coming back
   const lists = []; // list instances X has created
   let latestList = window.scroller;
@@ -954,7 +955,7 @@
     // X's rail has no slot for these, so they go at the end of its header and
     // are positioned from the logo. They sit under X's dialogs that way.
     if (!tabsBtn) {
-      tabsBtn = makeButton("xm-tabs-btn", "Timelines", ICON_LIST);
+      tabsBtn = makeButton("xm-tabs-btn", "", ICON_LIST);
       tabsBtn.addEventListener("click", () => {
         closePanel();
         setTabsOpen(!root.hasAttribute("data-xm-tabs-open"));
@@ -990,11 +991,13 @@
     setVar("--xm-logo-top", Math.round(r.top) + "px");
     setVar("--xm-logo-left", Math.round(r.left) + "px");
     setVar("--xm-logo-size", Math.round(r.width) + "px");
-    const tip = navOpen ? "收起侧边栏" : "展开侧边栏";
+    const tip = say(navOpen ? "navCollapse" : "navExpand");
     if (navBtn.dataset.tip !== tip) {
       navBtn.dataset.tip = tip;
       navBtn.setAttribute("aria-label", tip);
     }
+    const tabsLabel = say("timelines");
+    if (tabsBtn.getAttribute("aria-label") !== tabsLabel) tabsBtn.setAttribute("aria-label", tabsLabel);
 
     // The tab bar only moves if its parts are where they were expected. Otherwise it stays on top.
     const list = pc.querySelector('[role="tablist"]');
@@ -1025,7 +1028,7 @@
     const home = document.querySelector('[data-testid="GrokDrawer"]') || document.querySelector('[data-testid="chat-drawer-root"]');
     const target = home || header;
     if (flowBtn.parentElement !== target) target.append(flowBtn);
-    const label = flowSideways ? "切换到纵向流" : "切换到横向流";
+    const label = say(flowSideways ? "flowToVertical" : "flowToSideways");
     if (flowBtn.title !== label) {
       flowBtn.title = label;
       flowBtn.setAttribute("aria-label", label);
