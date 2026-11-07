@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh">
+<html>
   <head>
     <meta charset="utf-8" />
     <title>mltx</title>
@@ -9,53 +9,53 @@
     <h1>mltx</h1>
 
     <label class="row stack" for="mute">
-      <span>屏蔽词</span>
-      <textarea id="mute" rows="4" spellcheck="false" placeholder="每行一个，也可以用逗号分开"></textarea>
-      <small>正文、作者或链接卡片含这些词的帖子不显示，不分大小写。你点开的帖子和它的上文不受影响。</small>
+      <span data-i18n="mute"></span>
+      <textarea id="mute" rows="4" spellcheck="false"></textarea>
+      <small data-i18n="muteHint"></small>
     </label>
 
     <fieldset class="row">
-      <legend>默认流向</legend>
+      <legend data-i18n="flow"></legend>
       <div class="segments">
-        <label><input type="radio" name="flow" value="v" /><span>竖向</span></label>
-        <label><input type="radio" name="flow" value="h" /><span>横向</span></label>
+        <label><input type="radio" name="flow" value="v" /><span data-i18n="flowV"></span></label>
+        <label><input type="radio" name="flow" value="h" /><span data-i18n="flowH"></span></label>
       </div>
     </fieldset>
 
     <fieldset class="row">
-      <legend>主题</legend>
+      <legend data-i18n="theme"></legend>
       <div class="segments">
-        <label><input type="radio" name="theme" value="auto" /><span>跟随 X</span></label>
-        <label><input type="radio" name="theme" value="dark" /><span>黑色</span></label>
-        <label><input type="radio" name="theme" value="light" /><span>白色</span></label>
+        <label><input type="radio" name="theme" value="auto" /><span data-i18n="themeAuto"></span></label>
+        <label><input type="radio" name="theme" value="dark" /><span data-i18n="themeDark"></span></label>
+        <label><input type="radio" name="theme" value="light" /><span data-i18n="themeLight"></span></label>
       </div>
     </fieldset>
 
     <fieldset class="row">
-      <legend>左栏链接</legend>
+      <legend data-i18n="panel"></legend>
       <div class="segments">
-        <label><input type="radio" name="panel" value="sheet" /><span>侧边面板</span></label>
-        <label><input type="radio" name="panel" value="same" /><span>当前页跳转</span></label>
-        <label><input type="radio" name="panel" value="tab" /><span>新标签页</span></label>
+        <label><input type="radio" name="panel" value="sheet" /><span data-i18n="panelSheet"></span></label>
+        <label><input type="radio" name="panel" value="same" /><span data-i18n="panelSame"></span></label>
+        <label><input type="radio" name="panel" value="tab" /><span data-i18n="panelTab"></span></label>
       </div>
     </fieldset>
 
     <label class="row inline" for="panelKeep">
-      <span>侧边面板内容刷新时间</span>
+      <span data-i18n="panelKeep"></span>
       <select id="panelKeep">
-        <option value="0">不刷新</option>
-        <option value="1">1 分钟</option>
-        <option value="5">5 分钟</option>
-        <option value="15">15 分钟</option>
-        <option value="30">30 分钟</option>
-        <option value="60">1 小时</option>
+        <option value="0" data-i18n="keep0"></option>
+        <option value="1" data-i18n="keep1"></option>
+        <option value="5" data-i18n="keep5"></option>
+        <option value="15" data-i18n="keep15"></option>
+        <option value="30" data-i18n="keep30"></option>
+        <option value="60" data-i18n="keep60"></option>
       </select>
     </label>
 
     <label class="row inline" for="cols">
-      <span>列数</span>
+      <span data-i18n="cols"></span>
       <select id="cols">
-        <option value="0">自动</option>
+        <option value="0" data-i18n="colsAuto"></option>
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
@@ -67,8 +67,19 @@
       </select>
     </label>
 
-    <p class="note" id="note" hidden>切换主题时，打开的 X 页面会自动刷新。</p>
+    <label class="row inline" for="lang">
+      <span data-i18n="lang"></span>
+      <select id="lang">
+        <option value="auto" data-i18n="langAuto"></option>
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+      </select>
+    </label>
 
+    <p class="note" id="note" data-i18n="themeNote" hidden></p>
+
+    <script src="i18n.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

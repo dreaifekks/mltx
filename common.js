@@ -5,7 +5,10 @@
 // copies them into localStorage, so they're there synchronously at document_start, and
 // fires an event when they change.
 (() => {
-  if (window.__xmCommon) return; // Safari injects again when a written page gets its element
+  // The manifest lists this file ahead of each script that needs it, because only the order
+  // within one entry is promised. So the top frame gets it twice, and Safari injects again
+  // when a written page gets its element.
+  if (window.__xmCommon) return;
 
   const KEY = "xm-settings";
   const CHANGED = "xm-settings"; // bridge -> page: read them again
@@ -14,6 +17,7 @@
   const FLOWS = ["v", "h"];
   const THEMES = ["auto", "dark", "light"];
   const PANELS = ["sheet", "same", "tab"];
+  const LANGS = ["auto", "zh", "en", "ja"]; // auto follows the browser, see i18n.js
   const PANEL_KEEPS = [0, 1, 5, 15, 30, 60]; // minutes; 0 is for as long as it's kept alive
   const NIGHT_MODE = { dark: "2", light: "0" }; // X's values for lights out and default
   const CELL = '[data-testid="cellInnerDiv"]';
@@ -28,6 +32,7 @@
     return {
       flow: FLOWS.includes(s.flow) ? s.flow : "v",
       theme: THEMES.includes(s.theme) ? s.theme : "auto",
+      lang: LANGS.includes(s.lang) ? s.lang : "auto",
       panel: PANELS.includes(s.panel) ? s.panel : "sheet",
       panelKeep: PANEL_KEEPS.includes(panelKeep) ? panelKeep : 0,
       cols: Number.isInteger(cols) && cols >= 1 && cols <= 8 ? cols : 0,

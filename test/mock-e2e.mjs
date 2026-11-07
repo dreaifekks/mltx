@@ -10,6 +10,7 @@ import fs from "node:fs";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
+import { safariManifest } from "../scripts/safari-manifest.mjs";
 
 const require = createRequire(process.env.PW_FROM || path.join(process.cwd(), "/"));
 const { chromium } = require("playwright-core");
@@ -24,13 +25,9 @@ let ext = built;
 if (SAFARI) {
   ext = dir + "/ext";
   fs.mkdirSync(ext);
-  for (const name of ["icons", "frame-rules.json", "masonry.css", "panel-frame.css", "common.js", "settings-bridge.js", "popup.html", "popup.css", "popup.js"]) fs.cpSync(path.join(built, name), path.join(ext, name), { recursive: true });
-  for (const name of ["masonry.js", "panel-frame.js"]) {
-    const source = fs.readFileSync(path.join(built, name), "utf8");
-    if (!source.includes('navigator.vendor.startsWith("Apple")')) throw new Error("no browser check in " + name);
-    fs.writeFileSync(path.join(ext, name), source.replaceAll('navigator.vendor.startsWith("Apple")', "true"));
-  }
-  const manifest = JSON.parse(fs.readFileSync(path.join(built, "manifest.json"), "utf8"));
+  for (const name of ["icons", "_locales", "frame-rules.json", "masonry.css", "panel-frame.css", "i18n.js", "common.js", "settings-bridge.js", "masonry.js", "panel-frame.js", "popup.html", "popup.css", "popup.js"]) fs.cpSync(path.join(built, name), path.join(ext, name), { recursive: true });
+  fs.cpSync(new URL("../safari-entry.js", import.meta.url).pathname, path.join(ext, "safari-entry.js")); // a Chrome build doesn't have it
+  const manifest = safariManifest(JSON.parse(fs.readFileSync(path.join(built, "manifest.json"), "utf8")));
   delete manifest.declarative_net_request;
   fs.writeFileSync(path.join(ext, "manifest.json"), JSON.stringify(manifest));
 }
@@ -115,6 +112,7 @@ const NEW_TAB_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const ctx = await chromium.launchPersistentContext(dir + "/p", {
   headless: true,
   channel: "chromium",
+  locale: "zh-CN", // the checks below read the hints in Chinese, what auto gives here
   ignoreHTTPSErrors: true,
   viewport: { width: 1600, height: 900 },
   args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, `--host-resolver-rules=MAP x.com 127.0.0.1:${port},MAP third.test 127.0.0.1:${port}`, "--ignore-certificate-errors"],
@@ -1049,6 +1047,19 @@ check("other pages turn everything off", off.path === "/someone" && !off.on && !
   // An unpacked extension's id is made from its path.
   const realExt = fs.realpathSync(ext);
   const extId = createHash("sha256").update(realExt).digest("hex").slice(0, 32).replace(/./g, (h) => String.fromCharCode(97 + parseInt(h, 16)));
+  // Chrome only promises the order inside one entry. Across entries, panel-frame.js has run
+  // before common.js on real pages, which left frames on the entry page in one column.
+  const needs = { "__xmCommon": "common.js", "__xmI18n": "i18n.js" };
+  const unordered = JSON.parse(fs.readFileSync(path.join(ext, "manifest.json"), "utf8")).content_scripts.flatMap((e) =>
+    e.js.flatMap((name, i) => Object.entries(needs).filter(([global, file]) => name !== file && fs.readFileSync(path.join(ext, name), "utf8").includes(`window.${global}`) && !e.js.slice(0, i).includes(file)).map(([, file]) => `${name} needs ${file}`)),
+  );
+  check("every script lists what it needs ahead of it in its own entry", unordered.length === 0, unordered);
+
+  if (!SAFARI) {
+    const scripts = JSON.parse(fs.readFileSync(path.join(built, "manifest.json"), "utf8")).content_scripts.flatMap((e) => e.js);
+    const written = scripts.filter((name) => fs.readFileSync(path.join(built, name), "utf8").includes("document.write"));
+    check("this build loads no script that writes a fetched page", !scripts.includes("safari-entry.js") && written.length === 0, { scripts, written });
+  }
   const popup = await ctx.newPage();
   popup.on("pageerror", (e) => errors.push("popup: " + e));
   await popup.goto(`chrome-extension://${extId}/popup.html`);
@@ -1057,6 +1068,29 @@ check("other pages turn everything off", off.path === "/someone" && !off.on && !
   const on = (name, value) => popup.locator(`input[name="${name}"][value="${value}"]`).check({ force: true });
   const shown = await popup.evaluate(() => ({ flow: document.querySelector('input[name="flow"]:checked')?.value, theme: document.querySelector('input[name="theme"]:checked')?.value, panel: document.querySelector('input[name="panel"]:checked')?.value, w: document.body.offsetWidth }));
   check("the popup opens with the defaults", shown.flow === "v" && shown.theme === "auto" && shown.panel === "sheet" && shown.w === 320, shown);
+
+  // language: follows the browser until one is chosen, and the page's hints go along at once
+  const popupWords = () => popup.evaluate(() => ({ lang: document.documentElement.lang, box: document.querySelector("#lang").value, mute: document.querySelector('[data-i18n="mute"]').textContent, tip: document.querySelector("#mute").placeholder, option: document.querySelector('#cols option[value="0"]').textContent, blank: [...document.querySelectorAll("[data-i18n]")].filter((e) => !e.textContent).map((e) => e.dataset.i18n) }));
+  const hints = () => p.evaluate(() => ({ nav: document.querySelector("#xm-nav-btn").dataset.tip, flow: document.querySelector("#xm-flow-btn").title, tabs: document.querySelector("#xm-tabs-btn").getAttribute("aria-label") }));
+  const picked = await popup.evaluate(() => ({ zhTW: __xmI18n.resolve("auto", ["zh-TW"]), jaJP: __xmI18n.resolve("auto", ["ja-JP", "en"]), en: __xmI18n.resolve("auto", ["en-GB"]), second: __xmI18n.resolve("auto", ["de", "ja"]), none: __xmI18n.resolve("auto", ["de", "fr"]), chosen: __xmI18n.resolve("ja", ["zh-CN"]) }));
+  check("auto takes the first browser language it has, else English, and a choice wins", picked.zhTW === "zh" && picked.jaJP === "ja" && picked.en === "en" && picked.second === "ja" && picked.none === "en" && picked.chosen === "ja", picked);
+  const zhWords = await popupWords();
+  check("on a Chinese browser the popup starts in Chinese, on the auto setting", zhWords.lang === "zh" && zhWords.box === "auto" && zhWords.mute === "屏蔽词" && zhWords.option === "自动" && zhWords.blank.length === 0, zhWords);
+  await popup.locator("#lang").selectOption("en");
+  await p.waitForTimeout(800);
+  const enWords = await popupWords();
+  const enHints = await hints();
+  check("choosing English changes the popup", enWords.lang === "en" && enWords.mute === "Muted words" && enWords.tip.startsWith("One per line") && enWords.option === "Auto" && (await stored()).lang === "en", enWords);
+  check("and the page's hints, without a reload", enHints.nav === "Expand sidebar" && enHints.flow === "Switch to sideways flow" && enHints.tabs === "Timelines", enHints);
+  await popup.locator("#lang").selectOption("ja");
+  await p.waitForTimeout(800);
+  const jaWords = await popupWords();
+  const jaHints = await hints();
+  check("Japanese too", jaWords.lang === "ja" && jaWords.mute === "ミュートワード" && jaHints.nav === "サイドバーを開く" && jaHints.flow === "横スクロールに切り替え", { jaWords, jaHints });
+  await popup.locator("#lang").selectOption("auto");
+  await p.waitForTimeout(800);
+  const backHints = await hints();
+  check("back to auto follows the browser again", backHints.nav === "展开侧边栏" && (await popupWords()).mute === "屏蔽词" && (await stored()).lang === "auto", backHints);
   await p.bringToFront();
 
   // default flow: live, and what a reload goes back to
