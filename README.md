@@ -13,8 +13,10 @@ renders it.
   [Releases](https://github.com/dreaifekks/mltx/releases/latest). It is signed and
   notarized. Drag mltx into Applications and open it once, then turn it on in Safari's
   Settings, under Extensions, and allow it on x.com.
-- **Firefox 128+**: the Firefox zip on Releases is not signed by Mozilla, so it only loads
-  as a temporary add-on from `about:debugging`, which Firefox removes when it restarts.
+- **Firefox 128+**: download `mltx-<version>-firefox.zip` from
+  [Releases](https://github.com/dreaifekks/mltx/releases/latest). It is not signed by
+  Mozilla, so Firefox only loads it as a temporary add-on from `about:debugging` and
+  removes it on restart.
 
 ## Use
 
@@ -23,7 +25,7 @@ keep X's own layout.
 
 ### Layout
 
-- The column count follows the window: as many columns as fit at 360px or wider, up to 4.
+- The column count follows the window: one column per 360px of feed width, up to 4.
 - `Alt+-` and `Alt+=` set the column count by hand, and `Alt+0` goes back to automatic
   (`Alt` is `Option` on a Mac). This is the same setting as the column count in the
   toolbar popup.
@@ -64,8 +66,8 @@ keep X's own layout.
 
 - The toolbar icon opens the settings: muted words, default flow, theme (follow X, black
   or white), where the sidebar's links open (side panel, same tab or new tab), the side
-  panel's refresh time, the column count, and the language. A page left hidden longer
-  than the refresh time loads again when reopened, in the post window too.
+  panel's refresh time, the column count, and the language. A side panel or post window
+  left hidden longer than the refresh time reloads when reopened.
 - Everything saves as it changes and reaches open pages at once, except that changing the
   theme reloads them, since X only reads the theme when it starts.
 - The settings and the hints on the extension's buttons come in Chinese, English and
@@ -91,9 +93,9 @@ mltx is an independent project, not affiliated with or endorsed by X Corp.
 
 ## Limitations
 
-- mltx depends on the internals of X's web app. If a change at X keeps the timeline from
-  attaching within 8 seconds, or makes the layout fail 3 times in a row, the page falls
-  back to X's own layout.
+- mltx depends on the internals of X's web app. If a change at X keeps mltx from applying
+  its layout within 8 seconds, or causes 3 layout errors in a row, the page falls back to
+  X's own layout.
 - The side panel keeps its 3 most recently used pages alive and the post window keeps one.
   Each is a full X page in an iframe, so they cost memory.
 
