@@ -26,6 +26,8 @@ keep X's own layout.
 ### Layout
 
 - The column count follows the window: one column per 360px of feed width, up to 4.
+- New posts that X shows from its "Show posts" bar or pill go to the top of every
+  column, in X's order, and the posts that were there follow them.
 - `Alt+-` and `Alt+=` set the column count by hand, and `Alt+0` goes back to automatic
   (`Alt` is `Option` on a Mac). This is the same setting as the column count in the
   toolbar popup.

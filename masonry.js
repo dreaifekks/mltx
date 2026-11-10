@@ -68,6 +68,9 @@
   // Empty items marking where something starts. They need no measuring and can't count on
   // being mounted: nothing with no height falls inside the window X is asked for.
   const MARKER = /^impressionPlaceholder-/;
+  // The row X heads the list with for posts it is holding back ("Show 35 posts").
+  const NEW_POSTS_BAR = "newEntries";
+  const TOP_FRAMES = 30; // the view is kept at the start this long after X sends it there
   // Modules arrive as several items, e.g. header-who-to-follow-<n>, who-to-follow-<n>-user-<m>.
   const MODULE = /^(?:header-|footer-|\$divider-bottom-)?((?!tweet-|promoted-tweet-|impressionPlaceholder-)[a-zA-Z-]+?-\d{10,})/;
   // Routes X opens as a dialog over the page. Other /i/ routes (bookmarks...) are full pages.
@@ -174,20 +177,60 @@
     return FEED_TYPES.has(data.type) && !(data.content && data.content.promotedMetadata);
   }
 
+  const isBar = (item) => !!item.data && item.data.type === NEW_POSTS_BAR;
+
+  // X numbers every entry, in more digits than a number holds. Longer is higher.
+  const sortOf = (item) => (typeof item.sortIndex === "string" && /^\d+$/.test(item.sortIndex) ? item.sortIndex : null);
+  const sortsAbove = (a, b) => (a.length === b.length ? a > b : a.length > b.length);
+
   // X moves posts it considers unseen to the end of its list when more load. The
   // board's cards don't care, but the mounted range is a slice of that list, so
   // X's list is kept in first-seen order. New ids stay in X's relative order.
+  //
+  // A refresh at the top is the exception: all of it goes first, in X's order. X numbers
+  // its entries above everything it had, and that includes posts it had already and
+  // sends again. Those leave where they were and come back with the rest of the batch.
   function arrange(board, incoming) {
     if (incoming === board.lastIn || incoming === board.lastOut) return board.lastOut;
     const list = incoming.filter(belongsInFeed);
-    const known = new Map(board.order.map((id, i) => [id, i]));
-    const byId = new Map();
+    const bar = list.find(isBar) || null;
+    const known = new Map();
+    board.order.forEach((id, i) => {
+      if (id !== board.barId) known.set(id, i);
+    });
+    const byId = new Map(list.map((item) => [item.id, item]));
+
+    // Nothing left of what was there means a new list, not a batch on top of the old one.
+    const onTop = board.topSort !== null && list.some((item) => known.has(item.id));
+    const batch = [];
+    let top = board.topSort;
+    for (const item of list) {
+      const sort = item === bar ? null : sortOf(item);
+      if (sort === null) continue;
+      if (onTop && sortsAbove(sort, board.topSort)) batch.push(item.id);
+      if (top === null || sortsAbove(sort, top)) top = sort;
+    }
+    board.topSort = top;
+    const inBatch = new Set(batch);
+    const lifted = new Set();
+    for (const id of batch) {
+      if (NOT_A_CARD.test(id) || MARKER.test(id)) continue;
+      board.kinds.set(id, "front");
+      board.mids.delete(id);
+      if (board.placed.has(id)) lifted.add(id);
+    }
+    if (batch.length) {
+      board.frontBatch.clear(); // what's left of an earlier batch goes under this one
+      quietFrames = 0;
+    }
+    if (lifted.size) takeOff(board, board.order, (id) => !lifted.has(id));
+
     const front = [];
     const after = new Map();
     let anchor = null;
     let furthest = -1;
     for (const item of list) {
-      byId.set(item.id, item);
+      if (item === bar || inBatch.has(item.id)) continue;
       const at = known.get(item.id);
       if (at !== undefined) {
         if (at > furthest) {
@@ -206,9 +249,9 @@
     // Only a replacement stays where X put it. Anything else new goes to the end, in X's
     // order: left among cards already placed and scrolled past, it would drag the mounted
     // range back to them, or wait for a view that never returns.
-    const next = front;
+    const next = bar ? [bar.id, ...batch, ...front] : [...batch, ...front];
     for (const id of board.order) {
-      if (!byId.has(id)) continue;
+      if (!byId.has(id) || id === board.barId || inBatch.has(id)) continue;
       next.push(id);
       if (after.has(id) && board.mids.has(after.get(id)[0])) next.push(after.get(id)[0]);
     }
@@ -216,6 +259,15 @@
     for (const item of list) if (!inPlace.has(item.id)) next.push(item.id);
     const before = board.order;
     board.order = next;
+    board.barId = bar ? bar.id : null;
+    // The bar is on the board from the start, heading the first column. It has no height
+    // until X shows it, and X only gets to show it while it's mounted.
+    if (bar && !board.placed.has(bar.id)) {
+      board.placed.set(bar.id, { col: 0, join: false, shownJoin: false });
+      if (board.flow !== "h" && board.columns.length) board.columns[0].unshift(bar.id);
+      board.skipped.delete(bar.id);
+      board.dirty = true;
+    }
     const same = next.length === incoming.length && next.every((id, i) => incoming[i].id === id);
     board.lastIn = incoming;
     board.lastOut = same ? incoming : next.map((id) => byId.get(id));
@@ -239,9 +291,10 @@
       board.kinds.set(news[0], "mid");
       board.mids.set(news[0], neighbours);
     }
-    // Taking the place of the very first card.
-    if (front.length && !byId.has(board.order[0])) {
-      const neighbours = neighboursOfReplaced(board, board.order[0], byId);
+    // Taking the place of the very first card. The bar ahead of it comes and goes by itself.
+    const first = board.order[board.order[0] === board.barId ? 1 : 0];
+    if (front.length && !byId.has(first)) {
+      const neighbours = neighboursOfReplaced(board, first, byId);
       if (neighbours.prev || neighbours.next) {
         board.kinds.set(front[0], "mid");
         board.mids.set(front[0], neighbours);
@@ -297,48 +350,52 @@
     board.skipped.clear();
   }
 
-  function forgetDropped(board, byId, order) {
-    // A reply whose conversation head was dropped mustn't glue onto whatever precedes it
-    // now. In reading order, since a split conversation can be across columns.
+  // Takes every card off the board that `stays` doesn't name.
+  function takeOff(board, order, stays) {
+    // A reply whose conversation head went mustn't glue onto whatever precedes it now.
+    // In reading order, since a split conversation can be across columns.
     let headAlive = true;
     for (const id of order) {
       const p = board.placed.get(id);
       if (!p) continue;
-      if (!p.join) headAlive = byId.has(id);
-      else if (!headAlive && byId.has(id)) {
+      if (!p.join) headAlive = stays(id);
+      else if (!headAlive && stays(id)) {
         p.join = false;
         headAlive = true;
       }
     }
     for (const col of board.columns) {
       for (let i = col.length - 1; i >= 0; i--) {
-        if (byId.has(col[i])) continue;
-        board.placed.delete(col[i]);
+        if (stays(col[i])) continue;
         col.splice(i, 1);
         board.dirty = true;
       }
     }
     for (const id of board.placed.keys()) {
-      if (!byId.has(id)) {
-        board.placed.delete(id);
-        board.dirty = true;
+      if (stays(id)) continue;
+      board.placed.delete(id);
+      board.tops.delete(id);
+      board.dirty = true;
+    }
+    // A replacement with nothing left to go by is just a card now.
+    for (const [id, mid] of board.mids) {
+      if (mid.prev && !stays(mid.prev)) mid.prev = null;
+      if (mid.next && !stays(mid.next)) mid.next = null;
+      if (!mid.prev && !mid.next) {
+        board.mids.delete(id);
+        board.kinds.delete(id);
       }
     }
+  }
+
+  function forgetDropped(board, byId, order) {
+    takeOff(board, order, (id) => byId.has(id));
     for (const cache of [board.heights, board.seen, board.tops]) {
       for (const id of cache.keys()) if (!byId.has(id)) cache.delete(id);
     }
     for (const id of board.skipped) if (!byId.has(id)) board.skipped.delete(id);
     for (const map of [board.kinds, board.mids]) {
       for (const id of map.keys()) if (!byId.has(id)) map.delete(id);
-    }
-    // A replacement with nothing left to go by is just a card now.
-    for (const [id, mid] of board.mids) {
-      if (mid.prev && !byId.has(mid.prev)) mid.prev = null;
-      if (mid.next && !byId.has(mid.next)) mid.next = null;
-      if (!mid.prev && !mid.next) {
-        board.mids.delete(id);
-        board.kinds.delete(id);
-      }
     }
   }
 
@@ -349,6 +406,8 @@
       order: [],
       lastIn: null,
       lastOut: null,
+      topSort: null, // the highest number X has given an entry here
+      barId: null, // X's "show new posts" row while it's in the list
       columns: [], // arrays of ids, top to bottom
       placed: new Map(), // id -> { col, join } for cards on the board
       skipped: new Set(), // zero-height items (placeholders and the like)
@@ -375,6 +434,7 @@
       colH: 0,
       totalW: 0,
       restoreFrames: 0,
+      topFrames: 0,
     };
   }
 
@@ -476,7 +536,7 @@
   // holds up when one is dropped, the columns are re-dealt, or the batch pauses.
   function rebuildFront(b) {
     b.frontCount = b.columns.map((col) => {
-      let n = 0;
+      let n = col.length && col[0] === b.barId ? 1 : 0; // under the bar
       while (n < col.length && b.frontBatch.has(col[n])) n++;
       return n;
     });
@@ -569,6 +629,7 @@
     rebuildFront(b);
     for (let k = 0; k < list.length; k++) {
       const id = list[k].id;
+      if (id === b.barId) continue; // on the board already, and no card is ahead of it or behind
       if (b.placed.has(id)) {
         prevPlaced = id;
         continue;
@@ -641,7 +702,8 @@
       if (!p.join) col = shortest(bottoms);
       p.col = col;
       b.columns[col].push(id);
-      bottoms[col] += (b.heights.get(id) || 0) + GAP;
+      const h = b.heights.get(id) || 0;
+      if (h > 1) bottoms[col] += h + GAP; // nothing for the bar while X keeps it empty
     }
     b.dirty = true;
   }
@@ -675,6 +737,7 @@
     if (!sideways) b.columns = []; // dealt again below
     b.dirty = true;
     b.restoreFrames = 0;
+    b.topFrames = 0;
     if (anchor && b.placed.size) b.anchor = anchor;
     if (!sideways) c.el.scrollLeft = 0;
   }
@@ -700,13 +763,21 @@
     };
     S._viewport = proxy;
 
-    // "Back to the top" (the new-posts pill, Home) means the first column sideways.
+    // "Back to the top" (the new-posts pill, Home, showing new posts) means the first
+    // column sideways. Called on the proxy too, which inherits it.
     if (!vp.__xmHooked) {
       vp.__xmHooked = true;
       const toTop = vp.scrollToTop;
       vp.scrollToTop = function (...args) {
-        if (current && current.board.flow === "h") current.el.scrollLeft = 0;
-        return toTop.apply(this, args);
+        const c = current && current.vp === vp ? current : null;
+        if (c && c.board.flow === "h") c.el.scrollLeft = 0;
+        const out = toTop.apply(this, args);
+        try {
+          if (c) wentToTop(c);
+        } catch (e) {
+          console.error("[x-masonry]", e); // X's own handler goes on either way
+        }
+        return out;
       };
     }
 
@@ -737,8 +808,30 @@
     const key = String(S.props.cacheKey);
     const board = boardFor(key);
     board.restoreFrames = board.y > 0 || board.x > 0 ? 40 : 0;
+    board.topFrames = 0;
     current = { S, el, vp, st, key, board, attachedAt: performance.now() };
     S._scheduleCriticalUpdate();
+  }
+
+  // X sent the view to the start of the list. It goes on to scroll to the first post it
+  // has mounted and focus it, placed or not, without waiting for a frame. So the start of
+  // the list is asked for now, and every cell is put where the board has it now: a post
+  // that just left its place for the top isn't to be found where it was. And the view
+  // stays put for a moment whatever X scrolls to.
+  function wentToTop(c) {
+    const b = c.board;
+    const sideways = b.flow === "h";
+    if (sideways ? c.el.scrollLeft > 0 : scrollY > 0) return; // still on its way there
+    b.restoreFrames = 0;
+    b.anchor = null;
+    b.topFrames = TOP_FRAMES;
+    if (sideways) b.x = 0;
+    else b.y = 0;
+    quietFrames = 0;
+    if (!b.shownCols) return; // no frame has laid it out yet
+    if (b.dirty) relayout(b);
+    requestForView(c, b.shownCols, c.el.getBoundingClientRect());
+    placeCells(c, b.colw);
   }
 
   function detach() {
@@ -861,7 +954,7 @@
         }
         if (keep) b.requested.add(id);
       }
-      if (b.placed.has(id)) prevPlacedId = id;
+      if (b.placed.has(id) && id !== b.barId) prevPlacedId = id;
       if (keep) {
         if (k0 < 0) {
           k0 = k;
@@ -873,8 +966,11 @@
       top += h;
     }
     if (k0 < 0) return;
-    const nextTop = topAtK0 + 1;
-    const nextHeight = Math.max(1, bottomAtK1 - topAtK0 - 2);
+    // A pixel inside the first and last item, so their neighbours stay out. From the very
+    // first item it starts a pixel before instead: with no height, as the bar has until X
+    // shows it, that item would be left out too.
+    const nextTop = k0 === 0 ? topAtK0 - 1 : topAtK0 + 1;
+    const nextHeight = Math.max(1, bottomAtK1 - 1 - nextTop);
     // Same items but new coordinates also need a pass, or X keeps mounting by the old ones.
     const shifted = Math.abs(nextTop - st.top) > 1 || Math.abs(nextHeight - st.height) > 1;
     st.top = nextTop;
@@ -886,17 +982,35 @@
     }
   }
 
+  // What the view needs mounted, as it is now.
+  function requestForView(c, cols, rect) {
+    if (c.board.flow === "h") {
+      const left = c.el.scrollLeft;
+      const view = c.el.clientWidth;
+      const margin = view * KEEP_SCREENS;
+      requestItems(c, left - margin, left + view + margin, left + view * (1 + FILL_SCREENS), cols);
+    } else {
+      const viewTop = -rect.top - PAD;
+      const margin = innerHeight * KEEP_SCREENS;
+      requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
+    }
+  }
+
   function placeCells(c, colw) {
     const { S, board: b } = c;
     const sideways = b.flow === "h";
+    // A card waiting to be placed sits where it's headed: X scrolls to the newest post
+    // when it shows new ones, and from the end of the board that would take the view along.
     const parkAt = sideways ? `${b.totalW}px ${PAD}px` : `${PAD}px ${(b.bottoms.length ? Math.min(...b.bottoms) : 0) + PAD}px`;
+    const parkFront = `${PAD}px ${PAD}px`;
     for (const [id, comp] of S._cells) {
       const cell = comp && comp.getElement && comp.getElement();
       if (!cell) continue;
       const p = b.placed.get(id);
       if (!p) {
+        const at = b.kinds.get(id) === "front" ? parkFront : parkAt;
         if (cell.hasAttribute("data-xm-placed")) cell.removeAttribute("data-xm-placed");
-        if (cell.__xm !== parkAt) cell.style.translate = cell.__xm = parkAt;
+        if (cell.__xm !== at) cell.style.translate = cell.__xm = at;
         continue;
       }
       const v = `${PAD + p.col * (colw + GAP)}px ${PAD + b.tops.get(id)}px`;
@@ -1501,10 +1615,11 @@
     const moved = placedAny || b.dirty;
     if (b.dirty) {
       // Sideways, a height change can send cards to other columns. Whatever else moves,
-      // the first card in view stays where it is on screen.
+      // the first card in view stays where it is on screen. Except at the very start,
+      // where new posts are meant to push the rest along and show.
       const stride = colw + GAP;
       const firstCol = sideways ? Math.floor(c.el.scrollLeft / stride) : -1;
-      const held = sideways && !b.anchor && b.columns[firstCol] ? b.columns[firstCol][0] : null;
+      const held = sideways && !b.anchor && c.el.scrollLeft > 0 && b.columns[firstCol] ? b.columns[firstCol][0] : null;
       relayout(b);
       const now_ = held && b.placed.get(held);
       if (now_ && now_.col !== firstCol) c.el.scrollLeft += (now_.col - firstCol) * stride;
@@ -1523,6 +1638,13 @@
       }
       if (top === undefined || --b.anchor.frames <= 0) b.anchor = null;
     }
+    // X sent the view to the start. Until the user moves it, nothing takes it away again.
+    if (b.topFrames > 0) {
+      b.topFrames--;
+      if (sideways) {
+        if (c.el.scrollLeft > 0) c.el.scrollLeft = 0;
+      } else if (scrollY > 0) scrollTo(0, 0);
+    }
     const rect = c.el.getBoundingClientRect();
     if (b.restoreFrames > 0) {
       b.restoreFrames--;
@@ -1538,20 +1660,12 @@
       }
     }
 
-    if (sideways) {
-      const left = c.el.scrollLeft;
-      const view = c.el.clientWidth;
-      const margin = view * KEEP_SCREENS;
-      requestItems(c, left - margin, left + view + margin, left + view * (1 + FILL_SCREENS), cols);
-    } else {
-      const viewTop = -rect.top - PAD;
-      const margin = innerHeight * KEEP_SCREENS;
-      requestItems(c, viewTop - margin, viewTop + innerHeight + margin, viewTop + innerHeight * (1 + FILL_SCREENS), cols);
-    }
+    requestForView(c, cols, rect);
     placeCells(c, colw);
     if (!c.el.hasAttribute("data-xm-board")) c.el.setAttribute("data-xm-board", "");
-    if (b.placed.size > 0 || performance.now() - c.attachedAt > READY_TIMEOUT) toggleAttr("data-xm-ready", true);
-    const busy = moved || b.y !== yBefore || b.x !== xBefore || b.anchor || b.restoreFrames > 0 || b.stallId !== null;
+    const cards = b.placed.size - (b.placed.has(b.barId) ? 1 : 0);
+    if (cards > 0 || performance.now() - c.attachedAt > READY_TIMEOUT) toggleAttr("data-xm-ready", true);
+    const busy = moved || b.y !== yBefore || b.x !== xBefore || b.anchor || b.restoreFrames > 0 || b.topFrames > 0 || b.stallId !== null;
     quietFrames = busy ? 0 : quietFrames + 1;
     errors = 0;
   }
@@ -1683,6 +1797,7 @@
       () => {
         if (current) {
           current.board.restoreFrames = 0;
+          current.board.topFrames = 0;
           current.board.anchor = null;
         }
       },

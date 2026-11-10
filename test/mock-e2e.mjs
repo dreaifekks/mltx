@@ -49,11 +49,11 @@ const home = page(`<div id="app">${rail}<main><div><div><div data-testid="primar
 <div data-testid="chat-drawer-root" style="position:fixed;right:20px;bottom:20px"><button style="width:55px;height:55px;border-radius:16px;background:rgba(0,0,0,.65);border:1px solid rgb(75,78,82);box-sizing:border-box">C</button></div>
 <script>
 class Rect{constructor(t,h){this._t=t;this._h=h}getTop(){return this._t}getBottom(){return this._t+this._h}getHeight(){return this._h}translateBy(d){return new Rect(this._t+d,this._h)}}
-const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollTo(x,y)},scrollBy(){},scrollY(){return window.scrollY}};
-class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id.includes('-gap-')?36:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
+const vp={getRect(){return new Rect(0,innerHeight)},scrollTo(x,y){window.scrollTo(x,y)},scrollToTop(){this.scrollTo(0,0)},scrollBy(){},scrollY(){return window.scrollY}};
+class List{constructor(){window.scroller=this;this._viewport=vp;this._rootRef={current:document.getElementById('root')};this._cells=new Map();this.props={cacheKey:'home',list:[{id:'impressionPlaceholder-home-conversation-1001'},{id:'tweet-1000'},{id:'tweet-1001'},...Array.from({length:60},(_,i)=>({id:'tweet-'+i}))],minimumOffscreenToViewportRatio:.5,preferredOffscreenToViewportRatio:2.5};this._h=i=>i.id.startsWith('impressionPlaceholder')?0:i.id==='newEntriesItem'?(window.__barH||0):i.id.includes('-gap-')?36:i.id.startsWith('feedback')?60:120+(+i.id.slice(6)*37)%160}
 _getHeight(i){return this._h(i)}
 _scheduleCriticalUpdate(){requestAnimationFrame(()=>this.u())}
-u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML=it.id.includes('-gap-')?'<a href="/i/status/'+it.id.split('-gap-')[1]+'" role="link" style="display:block;height:36px">show more replies</a>':'<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'" role="link"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button>'+(+it.id.slice(6)%5===0?'<div role="link" tabindex="0" data-testid="quote"><div><time>2h</time></div><div data-testid="tweetPhoto" style="height:8px;background:#333"></div>quoted</div>':'')+'</article>';const q=c.querySelector('[data-testid="quote"]');if(q){q.__reactFiber$mock={memoizedProps:{},return:{memoizedProps:{link:{pathname:"https://twitter.com/quoted/status/"+(70000+ +it.id.slice(6)),anchorless:true}},return:null}};q.addEventListener("click",()=>{window.__quoteLeft=(window.__quoteLeft||0)+1})}this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
+u(){const r=this._viewport.getRect().translateBy(-this._rootRef.current.getBoundingClientRect().top);const lo=r.getTop(),hi=r.getBottom();let y=0;const keep=new Set();for(const it of this.props.list){const h=this._h(it);if(y+h>=lo&&y<=hi){keep.add(it.id);if(!this._cells.has(it.id)){const c=document.createElement('div');c.dataset.testid='cellInnerDiv';c.style.cssText='position:absolute;width:100%;transform:translateY('+y+'px)';c.innerHTML=it.id==='newEntriesItem'?'<div id="mock-bar" role="button" tabindex="0" style="overflow:hidden;height:'+h+'px">show posts</div>':it.id.includes('-gap-')?'<a href="/i/status/'+it.id.split('-gap-')[1]+'" role="link" style="display:block;height:36px">show more replies</a>':'<article data-testid="tweet" style="overflow:hidden;height:'+h+'px"><a class="user" href="/someone">@someone</a> <a href="/x/status/'+it.id.slice(6)+'" role="link"><time>1h</time></a><p data-testid="tweetText">post '+it.id+'</p><button data-testid="like">like</button>'+(+it.id.slice(6)%5===0?'<div role="link" tabindex="0" data-testid="quote"><div><time>2h</time></div><div data-testid="tweetPhoto" style="height:8px;background:#333"></div>quoted</div>':'')+'</article>';const q=c.querySelector('[data-testid="quote"]');if(q){q.__reactFiber$mock={memoizedProps:{},return:{memoizedProps:{link:{pathname:"https://twitter.com/quoted/status/"+(70000+ +it.id.slice(6)),anchorless:true}},return:null}};q.addEventListener("click",()=>{window.__quoteLeft=(window.__quoteLeft||0)+1})}this._rootRef.current.append(c);this._cells.set(it.id,{getElement:()=>c})}}y+=h}for(const[id,c]of this._cells)if(!keep.has(id)){c.getElement().remove();this._cells.delete(id)}this._rootRef.current.style.minHeight=y+'px'}}
 window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 window.__xPops=0;addEventListener('popstate',()=>window.__xPops++);
@@ -561,6 +561,161 @@ const swapDeep = await p.evaluate(async () => {
 });
 check("further down the feed too", swapDeep.placed && !!swapDeep.note && swapDeep.note.split(" ")[0] === swapDeep.before.split(" ")[0] && Math.abs(parseFloat(swapDeep.note.split(" ")[1]) - parseFloat(swapDeep.before.split(" ")[1])) < 1, swapDeep);
 
+// ---- a refresh at the top ----------------------------------------------------------------
+// X numbers its entries, and a refresh at the top numbers its own above all it had. Some
+// are posts it had already and sends again: those leave their old place in its list.
+await p.evaluate(() => {
+  const S = window.scroller;
+  const cell = (id) => S._cells.get(id)?.getElement();
+  window.__t = {
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    frames: (n) => new Promise((r) => { const tick = () => (n-- > 0 ? requestAnimationFrame(tick) : r()); tick(); }),
+    cell,
+    at: (id) => { const c = cell(id); return c && c.hasAttribute("data-xm-placed") ? c.style.translate.split(" ").map(parseFloat) : null; },
+    last: 0,
+    // Numbered highest first, all above anything numbered before.
+    stamp(items) { return items.slice().reverse().map((item) => ({ ...item, sortIndex: String(2000000000000000000n + BigInt(++this.last)) })).reverse(); },
+    // What X does once new posts are in its list: to the top, an update, then focus on the first post it has mounted.
+    toNewest() { S._viewport.scrollToTop(); S.u(); },
+    focusNewest() { for (const item of S.props.list) { const f = cell(item.id)?.querySelector("a, [tabindex='0']"); if (f) { f.scrollIntoView({ block: "nearest" }); f.focus(); return item.id; } } return null; },
+    // In each column: the batch first, in X's order, then what was there.
+    onTop(ids) { const cols = {}; for (const id of S._cells.keys()) { const a = this.at(id); if (a) (cols[a[0]] = cols[a[0]] || []).push({ y: a[1], k: ids.indexOf(id) }); } return Object.values(cols).every((c) => { c.sort((m, n) => m.y - n.y); const n = c.filter((e) => e.k >= 0).length; return c.slice(0, n).every((e, i) => e.k >= 0 && (!i || e.k > c[i - 1].k)); }); },
+  };
+});
+const refresh = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  window.scrollTo(0, 0); await T.sleep(300);
+  S.props = { ...S.props, list: T.stamp([...S.props.list, { id: "tweet-9301" }, { id: "tweet-9302" }]) };
+  S._scheduleCriticalUpdate(); await T.sleep(400);
+  const alone = [...S._cells.keys()].filter((id) => id.startsWith("tweet-") && T.at(id) && !T.cell(id).getAttribute("data-xm-join"));
+  const again = alone.find((id) => T.at(id)[1] > 100 && T.at(id)[1] < 600); // on the board, in the middle of a column
+  const heads = alone.filter((id) => T.at(id)[1] === 12);
+  const pick = (id) => S.props.list.find((i) => i.id === id);
+  const fresh = [9201, 9202, 9203, 9204, 9205, 9206].map((n) => ({ id: "tweet-" + n }));
+  // tweet-9301 is known and never was on the board; the conversation with its "show more
+  // replies" row is on it, far down
+  const gapId = "home-conversation-8103-gap-8101";
+  const conv = ["impressionPlaceholder-home-conversation-8103", "tweet-8101", gapId, "tweet-8103"].map(pick);
+  const batch = T.stamp([fresh[0], fresh[1], pick(again), fresh[2], pick("tweet-9301"), ...conv, fresh[3], fresh[4], fresh[5]]);
+  const ids = batch.map((i) => i.id);
+  const cards = ids.filter((id) => !id.startsWith("impressionPlaceholder"));
+  S.props = { ...S.props, list: [...batch, ...S.props.list.filter((i) => !ids.includes(i.id))] };
+  S._scheduleCriticalUpdate(); await T.sleep(1000);
+  const pos = cards.map((id) => T.at(id));
+  const part = (id) => { const a = T.at(id); return a && { x: a[0], y: a[1], h: T.cell(id).offsetHeight, join: T.cell(id).getAttribute("data-xm-join") }; };
+  const [head, gap, tail] = ["tweet-8101", gapId, "tweet-8103"].map(part);
+  const together = !!head && !!gap && !!tail && head.x === gap.x && gap.x === tail.x && gap.y === head.y + head.h && tail.y === gap.y + gap.h && head.join === "next" && gap.join === "prev next" && tail.join === "prev";
+  return { again, pos, together, conv: [head, gap, tail], onTop: T.onTop(cards), cols: new Set(pos.map((a) => a && a[0])).size, heads: heads.length, headsBelow: heads.every((id) => (T.at(id) || [0, 0])[1] > 12), y: window.scrollY };
+});
+check("a refresh at the top goes first as a whole, across the columns, posts X sent again included", !!refresh.again && refresh.pos.every(Boolean) && refresh.onTop && refresh.cols === 4 && refresh.pos[0][0] === 12 && refresh.pos[0][1] === 12 && refresh.heads >= 3 && refresh.headsBelow && refresh.y === 0, refresh);
+check("a conversation X sent again comes back as one card", refresh.together, refresh.conv);
+
+// X's "show N posts" bar heads the list with no height, and only gets one if it stays mounted
+const bar = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  const grow = (h) => { window.__barH = h; const e = document.getElementById("mock-bar"); if (e) e.style.height = h + "px"; S._scheduleCriticalUpdate(); };
+  const head = [...S._cells.keys()].find((id) => { const a = T.at(id); return a && a[0] === 12 && a[1] === 12; });
+  window.__barH = 0;
+  S.props = { ...S.props, list: [{ id: "newEntriesItem", sortIndex: "-1", data: { type: "newEntries", content: { count: 4 } } }, ...S.props.list] };
+  S._scheduleCriticalUpdate(); await T.sleep(600);
+  const hidden = { mounted: !!T.cell("newEntriesItem"), head: T.at(head) };
+  grow(48); await T.sleep(500);
+  const shown = { at: T.at("newEntriesItem"), head: T.at(head) };
+  window.scrollTo(0, 3000); await T.sleep(500);
+  const away = !!T.cell("newEntriesItem");
+  window.scrollTo(0, 0); await T.sleep(600);
+  return { hidden, shown, away, back: T.at("newEntriesItem"), y: window.scrollY };
+});
+check("X's bar for new posts stays mounted with no height, and heads the first column once it shows", bar.hidden.mounted && bar.hidden.head[1] === 12 && !!bar.shown.at && bar.shown.at[0] === 12 && bar.shown.at[1] === 12 && bar.shown.head[1] === 72 && !bar.away && !!bar.back && bar.back[1] === 12, bar);
+// dealt again while X keeps the bar empty, it takes no room: the first post still leads
+await p.evaluate(async () => { window.__barH = 0; document.getElementById("mock-bar").style.height = "0px"; window.scroller._scheduleCriticalUpdate(); await window.__t.sleep(800); });
+await p.keyboard.press("Alt+Minus");
+await p.waitForTimeout(400);
+await p.keyboard.press("Alt+Digit0");
+await p.waitForTimeout(600);
+const dealt = await p.evaluate(() => { const T = window.__t; const first = window.scroller.props.list.find((i) => i.id.startsWith("tweet-")); return { first: T.at(first.id), bar: T.at("newEntriesItem"), cols: new Set([...document.querySelectorAll("[data-xm-placed]")].map((c) => c.style.translate.split(" ")[0])).size }; });
+check("dealt again with the bar still empty, the first post heads the first column", !!dealt.first && dealt.first[0] === 12 && dealt.first[1] === 12 && !!dealt.bar && dealt.cols === 4, dealt);
+// a list without X's numbers still gets its new posts spread out, the bar's going aside
+const plain = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  const news = [9451, 9452, 9453, 9454].map((n) => ({ id: "tweet-" + n }));
+  S.props = { ...S.props, list: [...news, ...S.props.list.filter((i) => i.id !== "newEntriesItem")] };
+  S._scheduleCriticalUpdate(); await T.sleep(800);
+  const pos = news.map((n) => T.at(n.id));
+  return { pos, cols: new Set(pos.map((a) => a && a[0])).size, bar: !!T.cell("newEntriesItem") };
+});
+check("the bar going isn't taken for a card being replaced", plain.pos.every(Boolean) && plain.cols === 4 && plain.pos[0][0] === 12 && plain.pos[0][1] === 12 && !plain.bar, plain);
+// a click on the bar: the held posts join the list, the bar goes, and X scrolls to the first
+// post it has mounted and focuses it, a frame or two later when the page is busy
+const reveal = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  window.__barH = 48;
+  S.props = { ...S.props, list: [{ id: "newEntriesItem", sortIndex: "-1", data: { type: "newEntries", content: { count: 12 } } }, ...S.props.list] };
+  S._scheduleCriticalUpdate(); await T.sleep(500);
+  const batch = T.stamp(Array.from({ length: 12 }, (_, n) => ({ id: "tweet-" + (9401 + n) })));
+  const ids = batch.map((i) => i.id);
+  S.props = { ...S.props, list: [...batch, ...S.props.list.filter((i) => i.id !== "newEntriesItem")] };
+  T.toNewest();
+  await T.frames(2);
+  const focused = T.focusNewest();
+  const yAfterFocus = window.scrollY;
+  await T.sleep(1000);
+  const pos = ids.map((id) => T.at(id));
+  return { focused, yAfterFocus, y: window.scrollY, pos: pos.slice(0, 4), placed: pos.filter(Boolean).length, onTop: T.onTop(ids), cols: new Set(pos.map((a) => a && a[0])).size };
+});
+check("shown from the bar, the new posts take the top of every column", reveal.placed === 12 && reveal.onTop && reveal.cols === 4 && reveal.pos[0][0] === 12 && reveal.pos[0][1] === 12, reveal);
+check("X focusing its newest post, placed or not, leaves the view at the top", reveal.focused === "tweet-9401" && reveal.yAfterFocus === 0 && reveal.y === 0, { focused: reveal.focused, yAfterFocus: reveal.yAfterFocus, y: reveal.y });
+// the same from far down: "." or Home shows what's held and goes to the top in one go, and
+// X's update right then goes by whatever range it's given
+const fromBelow = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  window.scrollTo(0, 3000); await T.sleep(600);
+  const batch = T.stamp([9501, 9502, 9503, 9504, 9505].map((n) => ({ id: "tweet-" + n })));
+  S.props = { ...S.props, list: [...batch, ...S.props.list] };
+  T.toNewest();
+  await T.sleep(0);
+  const focused = T.focusNewest();
+  const yAfterFocus = window.scrollY;
+  await T.sleep(1000);
+  const pos = batch.map((i) => T.at(i.id));
+  return { focused, yAfterFocus, y: window.scrollY, pos };
+});
+check("from far down too: the top of the list is what X has mounted when it looks", fromBelow.focused === "tweet-9501" && fromBelow.yAfterFocus === 0 && fromBelow.y === 0 && fromBelow.pos.every((a) => a && a[1] < 700), fromBelow);
+// the first of a batch can be a post X sends again that is mounted further down: X looks
+// for it at once, before any frame has moved it
+const sentAgain = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  window.scrollTo(0, 0); await T.sleep(400);
+  const again = [...S._cells.keys()].find((id) => { const a = T.at(id); return id.startsWith("tweet-") && a && a[1] > innerHeight + 150 && !T.cell(id).getAttribute("data-xm-join"); });
+  const was = T.at(again);
+  const batch = T.stamp([S.props.list.find((i) => i.id === again), { id: "tweet-9551" }, { id: "tweet-9552" }]);
+  S.props = { ...S.props, list: [...batch, ...S.props.list.filter((i) => i.id !== again)] };
+  T.toNewest();
+  const focused = T.focusNewest();
+  const yAfterFocus = window.scrollY;
+  await T.sleep(900);
+  return { again, was, focused, yAfterFocus, y: window.scrollY, now: T.at(again) };
+});
+check("a post X sends again at the head of a batch isn't looked for where it was", !!sentAgain.again && sentAgain.focused === sentAgain.again && sentAgain.yAfterFocus === 0 && sentAgain.y === 0 && !!sentAgain.now && sentAgain.now[0] === 12 && sentAgain.now[1] === 12, sentAgain);
+// whatever else X scrolls to right after going to the top, the view stays there, until the user moves it
+const held0 = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  window.scrollTo(0, 2000); await T.sleep(400);
+  S._viewport.scrollToTop();
+  await T.frames(1);
+  window.scrollTo(0, 1500);
+  await T.sleep(300);
+  const kept = window.scrollY;
+  S._viewport.scrollToTop();
+  return { kept };
+});
+await p.mouse.move(800, 500);
+await p.mouse.wheel(0, 600);
+await p.waitForTimeout(400);
+const wheeled = await p.evaluate(() => window.scrollY);
+check("the view is kept at the top for a moment after X sends it there, and the wheel takes it back", held0.kept === 0 && wheeled > 300, { kept: held0.kept, wheeled });
+await p.evaluate(async () => { window.scrollTo(0, 0); await new Promise((r) => setTimeout(r, 300)); });
+
 // ---- post window ---------------------------------------------------------------------
 const postState = () => p.evaluate(() => { const e = document.documentElement; const pe = document.querySelector("#xm-post"); const r = pe && pe.getBoundingClientRect(); const sc = document.querySelector("#xm-post-scrim"); const f = pe && pe.querySelector("iframe"); return { open: e.hasAttribute("data-xm-post-open"), visible: !!pe && getComputedStyle(pe).visibility === "visible", rect: r && [r.left, r.top, r.width, r.height].map(Math.round), blur: sc ? getComputedStyle(sc).backdropFilter : null, path: location.pathname, y: window.scrollY, frameName: f && f.name, frameHref: f && f.dataset.xmHref }; });
 const panelBlur = await p.evaluate(() => getComputedStyle(document.querySelector("#xm-panel-scrim")).backdropFilter);
@@ -884,6 +1039,24 @@ const fits = fl.cards.every((c) => c.y + c.h <= fl.ch);
 const overlaps = (() => { const byX = {}; for (const c of fl.cards) (byX[c.x] = byX[c.x] || []).push(c); return Object.values(byX).some((a) => a.sort((m, n) => m.y - n.y).some((c, i) => i && c.y < a[i - 1].y + a[i - 1].h)); })();
 check("clicking it doesn't reach X's Grok button", (await p.evaluate(() => window.__grokClicks || 0)) === 0);
 check("switching lays cards out in screen-high columns, scrolling sideways", fl.attr === "h" && fl.pos === "fixed" && colXs.length >= 2 && fits && !overlaps && fl.sw > fl.cw && fl.title === "切换到纵向流", { attr: fl.attr, pos: fl.pos, colXs, fits, overlaps, sw: fl.sw, cw: fl.cw, doc: fl.doc });
+// new posts shown from the first column push the rest along and stay in view
+const sideBatch = await p.evaluate(async () => {
+  const T = window.__t, S = window.scroller;
+  const b = document.querySelector("[data-xm-board]");
+  // one of them is a post already on the board, some columns along, that X sends again
+  const again = [...S._cells.keys()].find((id) => { const a = T.at(id); return id.startsWith("tweet-") && a && a[0] > 700 && !T.cell(id).getAttribute("data-xm-join"); });
+  const batch = T.stamp([...[9601, 9602, 9603].map((n) => ({ id: "tweet-" + n })), S.props.list.find((i) => i.id === again), ...[9604, 9605].map((n) => ({ id: "tweet-" + n }))]);
+  S.props = { ...S.props, list: [...batch, ...S.props.list.filter((i) => i.id !== again)] };
+  T.toNewest();
+  await T.frames(2);
+  const focused = T.focusNewest();
+  const slAfterFocus = b.scrollLeft;
+  await T.sleep(1000);
+  const pos = batch.map((i) => T.at(i.id));
+  const xs = [...new Set([...document.querySelectorAll("[data-xm-placed]")].map((c) => parseFloat(c.style.translate)))].sort((m, n) => m - n);
+  return { again, focused, slAfterFocus, sl: b.scrollLeft, pos, firstCols: pos.every((a) => a && xs.indexOf(a[0]) <= 2) };
+});
+check("sideways, new posts shown at the start take the first columns and stay in view", !!sideBatch.again && sideBatch.focused === "tweet-9601" && sideBatch.slAfterFocus === 0 && sideBatch.sl === 0 && sideBatch.pos.every(Boolean) && sideBatch.pos[0][0] === 12 && sideBatch.pos[0][1] === 12 && sideBatch.firstCols, sideBatch);
 const box = await p.locator("[data-xm-board]").boundingBox();
 await p.mouse.move(box.x + 400, 400);
 await p.mouse.wheel(0, 600);
