@@ -9,6 +9,13 @@ It depends on X's internals: `window.scroller`, and on that object `_viewport`,
 `props.cacheKey`. If those change, the list does not attach and the page falls
 back to X's normal layout after 8 seconds, or after 3 errors in a row.
 
+Two things about X's list items are used when they are there. The `sortIndex` on every
+item tells a refresh at the top apart: X numbers those entries above everything it had,
+posts it sends again included, and the whole batch goes to the top of the board in X's
+order. Without it, only new posts ahead of every known one count as new at the top. The
+item whose `data.type` is `newEntries` is X's "show N posts" row. It heads the first
+column and stays mounted there, since X only shows it while it is mounted.
+
 The content scripts are grouped in `manifest.json` so that each lists what it needs ahead
 of it, with `common.js` in both of its entries. Chrome only promises the order inside one
 entry: across entries `panel-frame.js` has run first on real pages, leaving the panel on
