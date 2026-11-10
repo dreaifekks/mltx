@@ -1,4 +1,4 @@
-# Chrome 应用商店申请参考（mltx 0.4.1）
+# Chrome 应用商店申请参考（mltx 0.4.2）
 
 按开发者后台的标签页顺序排列。代码块里的内容可以直接粘贴，其他是填写说明。这份文件不会打进扩展包。
 
@@ -9,7 +9,7 @@
 
 ## 上传包
 
-上传 `mltx-0.4.1-chrome.zip`。发布后从 v0.4.1 的 GitHub Release 下载，发布前可以用 `packages/` 里的同名文件。
+上传 `mltx-0.4.2-chrome.zip`。发布后从 v0.4.2 的 GitHub Release 下载，发布前可以用 `packages/` 里的同名文件。
 
 不要提交 0.4.0，它的侧边面板和帖子浮窗可能显示错误页面。也不要手动压缩 `dist/chrome`，Chrome 加载后会在里面生成 `_metadata`，商店会拒收。
 
