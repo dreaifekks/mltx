@@ -52,7 +52,9 @@ if (window !== window.top) {
     const theme = window.__xmCommon.settings().theme;
     if (theme !== "auto") document.documentElement.setAttribute("data-xm-theme", theme);
 
-    // WebKit lets scrollIntoView and focus inside a fixed iframe scroll the feed behind it.
+    // WebKit lets scrollIntoView inside a fixed iframe scroll the feed behind it. Leave
+    // HTMLElement.prototype.focus native: wrapping it makes Chrome attribute X's own
+    // focus-without-user-activation violations to this script in chrome://extensions.
     const keepTopScroll = (proto, name) => {
       const original = proto[name];
       if (typeof original !== "function") return;
@@ -75,7 +77,6 @@ if (window !== window.top) {
     };
     keepTopScroll(Element.prototype, "scrollIntoView");
     keepTopScroll(Element.prototype, "scrollIntoViewIfNeeded");
-    keepTopScroll(HTMLElement.prototype, "focus");
 
     const history = window.history;
 

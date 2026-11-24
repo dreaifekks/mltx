@@ -1060,17 +1060,12 @@ check("buttons on a card don't open it", !(await postState()).open);
   const frameOverscroll = await postFrameOf().evaluate(() => getComputedStyle(document.documentElement).overscrollBehavior);
   check("framed pages contain overscroll so they don't chain to the feed", frameOverscroll === "contain", frameOverscroll);
 
-  // WebKit lets focus() and scrollIntoView() inside a fixed iframe scroll window.top synchronously.
+  // WebKit lets scrollIntoView() inside a fixed iframe scroll window.top synchronously,
+  // while HTMLElement.prototype.focus stays native so Chrome doesn't blame this script for
+  // X's own focus-without-user-activation violations.
   const syncRestore = await postFrameOf().evaluate(() => {
     const startY = window.top.scrollY;
-    const btn = document.createElement("button");
-    btn.textContent = "probe";
-    btn.addEventListener("focus", () => window.top.scrollTo(0, startY + 600));
-    document.body.append(btn);
-    btn.focus();
-    const afterFocus = { topY: window.top.scrollY, active: document.activeElement === btn };
-    btn.remove();
-
+    const focusNative = /\[native code\]/.test(HTMLElement.prototype.focus.toString());
     const tall = document.createElement("div");
     tall.style.cssText = "position:absolute;top:1600px;height:40px;width:40px";
     document.body.append(tall);
@@ -1084,9 +1079,9 @@ check("buttons on a card don't open it", !(await postState()).open);
     const afterIntoView = { topY: window.top.scrollY, frameY: window.scrollY };
     tall.remove();
     window.scrollTo(0, 0);
-    return { startY, afterFocus, afterIntoView };
+    return { startY, focusNative, afterIntoView };
   });
-  check("focus and scrollIntoView in a frame restore top scroll synchronously while working inside the frame", syncRestore.afterFocus.topY === yLocked && syncRestore.afterFocus.active && syncRestore.afterIntoView.topY === yLocked && syncRestore.afterIntoView.frameY > 0, syncRestore);
+  check("scrollIntoView in a frame restores top scroll synchronously while focus stays native", syncRestore.focusNative && syncRestore.afterIntoView.topY === yLocked && syncRestore.afterIntoView.frameY > 0, syncRestore);
 
   // Forced top-window scroll and wheel over scrim do not move the feed while the post window is open.
   await p.evaluate((y) => window.scrollTo(0, y + 500), yLocked);
