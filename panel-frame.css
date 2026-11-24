@@ -18,6 +18,10 @@ html[data-xm-theme="light"] body {
 
 /* X's own page inside the side panel: just the content column. */
 
+html[data-xm-panel] {
+  overscroll-behavior: contain;
+}
+
 html[data-xm-panel] header[role="banner"],
 html[data-xm-panel] [data-testid="sidebarColumn"],
 html[data-xm-panel] [data-testid="GrokDrawer"],
@@ -182,4 +186,9 @@ html[data-xm-post] [data-xm-sort] {
   padding: 10px 16px !important;
   box-sizing: border-box;
   border-bottom: 1px solid rgb(127 127 127 / 0.28);
+}
+
+/* Keep X's media viewer above the pinned post panes while it fills the viewport. */
+html[data-xm-post][data-xm-media] #layers {
+  z-index: 10 !important;
 }

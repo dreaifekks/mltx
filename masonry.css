@@ -472,6 +472,11 @@ html[data-xm-on] [data-xm-board] article {
   border-bottom-width: 0 !important;
 }
 
+/* Safari's mandatory snap pulls wide multi-photo carousels back on small scrolls. */
+html[data-xm-on] [data-xm-board] [data-testid="ScrollSnap-List"] {
+  scroll-snap-type: none !important;
+}
+
 /* ---- Post view: X's post page in a floating window, the feed blurred behind. ------- */
 
 #xm-post-scrim,
@@ -507,6 +512,15 @@ html[data-xm-on][data-xm-post-open] #xm-post-scrim,
 html[data-xm-on][data-xm-post-open] #xm-post {
   visibility: visible;
   opacity: 1;
+}
+
+html[data-xm-on][data-xm-post-open][data-xm-post-media] #xm-post {
+  inset: 0;
+  translate: none;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 #xm-post iframe {

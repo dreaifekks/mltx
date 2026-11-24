@@ -75,6 +75,7 @@
   const MODULE = /^(?:header-|footer-|\$divider-bottom-)?((?!tweet-|promoted-tweet-|impressionPlaceholder-)[a-zA-Z-]+?-\d{10,})/;
   // Routes X opens as a dialog over the page. Other /i/ routes (bookmarks...) are full pages.
   const OVERLAY_ROUTE = /^\/(compose\/|i\/(flow|display|keyboard_shortcuts)(\/|$)|[^/]+\/status\/\d+\/(photo|video)\/\d+)/;
+  const MEDIA_OVERLAY = /^\/[^/]+\/status\/\d+\/(photo|video)\/\d+(?:\/|$)/;
   const STALL_FRAMES = 180; // a card that never gets ready stops holding up the rest
   const IDLE_FRAMES = 30; // quiet this long and the layout pass drops to every IDLE_EVERY frames
   const IDLE_EVERY = 6;
@@ -97,9 +98,9 @@
   let flowSideways = common.settings().flow === "h"; // the default until the switch is used
   let flowBtn = null;
   let flowPlacedAt = 0;
-  let gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null };
+  let gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null, scroller: null };
   const resetGesture = () => {
-    gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null };
+    gesture = { at: 0, kind: null, dx: 0, dy: 0, cell: null, scroller: null };
   };
   let tabsBtn = null;
   let navBtn = null;
@@ -118,6 +119,7 @@
   let postHiddenAt = 0;
   let backGuardOn = false;
   let backGuardMoves = 0; // our own traversals on their way, whose popstate isn't anyone else's
+  let overlayScroll = null; // { y, sx, x } held while an overlay or its closing guard is active
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -733,6 +735,7 @@
   function changeFlow(c, b, sideways) {
     const anchor = b.flow === "h" ? anchorSideways(b, b.x) : anchorAt(b, b.y - b.listTop - PAD);
     resetGesture();
+    overlayScroll = null;
     b.flow = sideways ? "h" : "v";
     if (!sideways) b.columns = []; // dealt again below
     b.dirty = true;
@@ -1197,6 +1200,26 @@
 
   const overlayShowing = () => !!panelHref || root.hasAttribute("data-xm-post-open");
 
+  function lockFeedScroll() {
+    if (!overlayScroll) overlayScroll = { y: scrollY, sx: scrollX, x: current ? current.el.scrollLeft : 0 };
+  }
+
+  function restoreOverlayScroll() {
+    if (!overlayScroll || !root.hasAttribute("data-xm-on")) return;
+    if (scrollY !== overlayScroll.y || scrollX !== overlayScroll.sx) scrollTo(overlayScroll.sx, overlayScroll.y);
+    if (current && current.board.flow === "h" && current.el.scrollLeft !== overlayScroll.x) {
+      current.el.scrollLeft = overlayScroll.x;
+    }
+  }
+
+  addEventListener(
+    "scroll",
+    () => {
+      if (overlayScroll) restoreOverlayScroll();
+    },
+    { capture: true, passive: true },
+  );
+
   function moveInHistory(delta) {
     backGuardMoves++;
     history.go(delta);
@@ -1219,6 +1242,10 @@
       backGuardOn = false;
       // Unless X went somewhere itself, which already took us off them.
       if (history.state && history.state.xmGuard === "middle") moveInHistory(-1);
+    }
+    if (overlayScroll) {
+      restoreOverlayScroll();
+      if (!showing && !backGuardMoves) overlayScroll = null;
     }
   }
 
@@ -1277,6 +1304,16 @@
     } catch {}
   }
 
+  // Hidden frames stay in the DOM, so move focus back to the page when one closes.
+  function releaseFocus(frame) {
+    if (!frame || document.activeElement !== frame) return;
+    try {
+      frame.contentDocument.activeElement?.blur();
+    } catch {}
+    frame.blur();
+    window.focus();
+  }
+
   const panelEntryUrl = (href) => `${PANEL_ENTRY}?xm-panel=${encodeURIComponent(href)}`;
 
   // Set by panel-frame.js. Chrome makes a refused frame unreadable, Safari leaves it blank.
@@ -1307,6 +1344,7 @@
   }
 
   function openPanel(href, link) {
+    lockFeedScroll();
     buildPanel();
     let frame = panelFrames.get(href);
     if (frame) {
@@ -1326,6 +1364,7 @@
     for (const f of panelFrames.values()) {
       if (f !== frame && f.hasAttribute("data-xm-shown")) {
         pauseMedia(f);
+        releaseFocus(f);
         f.__xmHiddenAt = Date.now();
       }
       f.toggleAttribute("data-xm-shown", f === frame);
@@ -1390,13 +1429,15 @@
 
   // Over the side panel if it came from there, so closing it goes back to that page.
   function openPost(href, overPanel) {
-    if (!overPanel) closePanel();
+    lockFeedScroll();
     setTabsOpen(false);
     buildPost();
     root.setAttribute("data-xm-post-open", "");
+    if (!overPanel) closePanel();
     syncBackGuard();
     const stale = expired(postHiddenAt);
     if (postFrame && href === postHref && postShows(href) && !stale) return;
+    root.removeAttribute("data-xm-post-media");
     postHref = href;
     root.setAttribute("data-xm-post-loading", "");
     clearTimeout(postReadyTimer);
@@ -1419,9 +1460,13 @@
   function closePost() {
     resetGesture();
     postLoaded();
-    if (postFrame) pauseMedia(postFrame);
+    if (postFrame) {
+      pauseMedia(postFrame);
+      releaseFocus(postFrame);
+    }
     if (root.hasAttribute("data-xm-post-open")) postHiddenAt = Date.now();
     root.removeAttribute("data-xm-post-open");
+    root.removeAttribute("data-xm-post-media");
     syncBackGuard();
   }
 
@@ -1433,6 +1478,10 @@
       if (fromPost && postHref && postHref.endsWith(`/status/${e.data.id}`)) postLoaded();
       return;
     }
+    if (e.data.xm === "post-media") {
+      if (fromPost && root.hasAttribute("data-xm-post-open")) toggleAttr("data-xm-post-media", !!e.data.on);
+      return;
+    }
     const fromPanel = [...panelFrames.values()].some((f) => f.contentWindow === e.source);
     if (e.data.xm === "close") {
       if (fromPost || fromPanel) closeTopmost();
@@ -1442,15 +1491,35 @@
     }
   });
 
+  function dismissPostMedia() {
+    let pages = null;
+    try {
+      pages = postFrame && postFrame.contentWindow.__xmFrameHistory;
+    } catch {}
+    if (pages && pages.canGo(-1)) pages.go(-1);
+    else closePost();
+  }
+
   function closeTopmost() {
     if (root.hasAttribute("data-xm-post-open")) closePost();
     else closePanel();
   }
 
-  addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || document.querySelector('[role="dialog"]')) return;
-    closeTopmost();
-  });
+  addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key !== "Escape") return;
+      if (root.hasAttribute("data-xm-post-open")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (root.hasAttribute("data-xm-post-media")) dismissPostMedia();
+        else closePost();
+        return;
+      }
+      if (panelHref && !document.querySelector('[role="dialog"]')) closePanel();
+    },
+    true,
+  );
 
   // A click on a card opens it, the same clicks that would go to the post page.
   addEventListener(
@@ -1458,8 +1527,9 @@
     (e) => {
       const t = e.target;
       if (!current || !t.closest || !root.hasAttribute("data-xm-on")) return;
+      if (root.hasAttribute("data-xm-post-open")) return;
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const path = common.clickedPost(t, "[data-xm-board]");
+      const path = common.clickedPost(t, "[data-xm-board]") || (MEDIA_OVERLAY.test(location.pathname) && common.clickedPost(t, '[role="dialog"]'));
       if (!path) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -1472,6 +1542,7 @@
     const frame = panelHref && panelFrames.get(panelHref);
     if (frame) {
       pauseMedia(frame);
+      releaseFocus(frame);
       frame.__xmHiddenAt = Date.now();
     }
     panelHref = null;
@@ -1540,6 +1611,7 @@
       homeSince = 0;
     }
     if (!want) {
+      overlayScroll = null;
       if (current) detach();
       if (root.hasAttribute("data-xm-on")) root.removeAttribute("data-xm-on");
       if (root.hasAttribute("data-xm-tabs-open")) setTabsOpen(false);
@@ -1645,13 +1717,14 @@
         if (c.el.scrollLeft > 0) c.el.scrollLeft = 0;
       } else if (scrollY > 0) scrollTo(0, 0);
     }
+    if (overlayScroll) restoreOverlayScroll();
     const rect = c.el.getBoundingClientRect();
     if (b.restoreFrames > 0) {
       b.restoreFrames--;
       if (sideways) c.el.scrollLeft = b.x;
       else if (b.y > 0) scrollTo(0, b.y);
     }
-    if (!OVERLAY_ROUTE.test(location.pathname) && !b.restoreFrames) {
+    if (!OVERLAY_ROUTE.test(location.pathname) && !overlayScroll && !b.restoreFrames) {
       if (sideways) {
         b.x = c.el.scrollLeft;
       } else {
@@ -1688,6 +1761,7 @@
       console.error("[x-masonry]", e);
       quietFrames = 0;
       if (errors >= 3) {
+        overlayScroll = null;
         try {
           detach();
         } catch {}
@@ -1718,6 +1792,21 @@
     true,
   );
 
+  // Nearest horizontally scrollable box inside a placed card (e.g. multi-photo carousel)
+  // that still has room in the direction of `dx`.
+  function innerHorizontalScroller(target, dx) {
+    if (!dx) return null;
+    const card = target.closest("[data-xm-placed]");
+    if (!card) return null;
+    for (let el = target; el && el !== card; el = el.parentElement) {
+      if (el.scrollWidth <= el.clientWidth + 1) continue;
+      const ox = getComputedStyle(el).overflowX;
+      if (ox !== "auto" && ox !== "scroll") continue;
+      if (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0) return el;
+    }
+    return null;
+  }
+
   // Sideways, the list scrolls itself, and the wheel works anywhere in the window. The
   // direction is decided once per gesture, but not from the first event alone: a swipe
   // often opens with a stray dx=0, dy=-1, and locking onto that would turn the whole swipe
@@ -1728,14 +1817,20 @@
   //    would leave a vertical swipe with nothing to move.
   //  - otherwise hold the movement until there's enough to tell, then apply it all. Sideways
   //    wins unless vertical clearly dominates, since that's what this list scrolls in.
+  //  - a sideways gesture starting on a horizontally scrollable strip inside a card (like a
+  //    multi-photo carousel) scrolls that strip while it has room.
   //  - a vertical gesture starting on a card too tall for its column scrolls that card.
   addEventListener(
     "wheel",
     (e) => {
-      if (!current || current.board.flow !== "h" || e.ctrlKey || !root.hasAttribute("data-xm-on")) return;
-      if (root.hasAttribute("data-xm-panel-open") || root.hasAttribute("data-xm-post-open")) return;
+      if (e.ctrlKey || !root.hasAttribute("data-xm-on")) return;
       const t = e.target;
       if (!t.closest || t.closest('#layers, [role="dialog"], [data-xm-tabs]')) return;
+      if (overlayShowing()) {
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      if (!current || current.board.flow !== "h") return;
 
       const now = performance.now();
       const gap = now - gesture.at;
@@ -1766,7 +1861,8 @@
         if (Math.abs(gesture.dx) + Math.abs(gesture.dy) < GESTURE_DEADZONE) return;
         if (Math.abs(gesture.dx) * SIDEWAYS_BIAS >= Math.abs(gesture.dy)) {
           gesture.kind = "x";
-          list.scrollLeft += gesture.dx;
+          gesture.scroller = innerHorizontalScroller(t, gesture.dx);
+          (gesture.scroller || list).scrollLeft += gesture.dx;
           return;
         }
         const cell = t.closest("[data-xm-placed]");
@@ -1783,7 +1879,7 @@
       }
       if (gesture.kind === "native") return;
       e.preventDefault();
-      if (gesture.kind === "x") list.scrollLeft += dx;
+      if (gesture.kind === "x") (gesture.scroller && gesture.scroller.isConnected ? gesture.scroller : list).scrollLeft += dx;
       else if (gesture.kind === "y") list.scrollLeft += dy;
       else if (gesture.cell && gesture.cell.isConnected) gesture.cell.scrollTop += dy;
     },
@@ -1794,7 +1890,10 @@
   for (const type of ["wheel", "touchstart", "keydown", "pointerdown"]) {
     addEventListener(
       type,
-      () => {
+      (e) => {
+        if (overlayScroll && !overlayShowing() && !(type === "keydown" && e.key === "Escape")) {
+          overlayScroll = null;
+        }
         if (current) {
           current.board.restoreFrames = 0;
           current.board.topFrames = 0;

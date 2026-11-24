@@ -58,16 +58,24 @@ window.__listDelay=setTimeout(()=>{const l=new List();l.u()},400);
 addEventListener('scroll',()=>window.scroller&&window.scroller._scheduleCriticalUpdate());
 window.__xPops=0;addEventListener('popstate',()=>window.__xPops++);
 </script>`);
-const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();
+const inner = (name) => page(`<div id="app">${rail}<main><div><div><div data-testid="primaryColumn"><div id="content" style="height:3000px">${name}</div></div></div></div><div data-testid="sidebarColumn">right</div></main></div><div id="layers" style="position:fixed;inset:0;z-index:1;pointer-events:none"></div><script>window.__topOk=(()=>{try{return window.top!==window}catch{return true}})();window.__loadId=Math.random();
 const content=document.getElementById("content");content.prepend(document.createElement("div"));const root=document.createElement("div");content.append(root);
+const layers=document.getElementById("layers");
 const S={_rootRef:{current:root},_cells:new Map(),_getHeight(){return 100},_getHeightForItemId(){return 100},_getRenderCandidates(){return {}},_scheduleCriticalUpdate(){},props:{list:[]}};window.scroller=S;
 const cellFor=(item,html)=>{const c=document.createElement("div");c.dataset.testid="cellInnerDiv";c.innerHTML=html;S._cells.set(item,{getElement:()=>c});return c};
+const mediaRe=/^\\/(?:[^/]+\\/status\\/\\d+\\/(?:photo|video)\\/\\d+|[^/]+\\/(?:photo|header_photo))(?=\\/|$)/;
+let renderedId=null;
 const go=(href)=>{history.pushState(null,"",href);render()};
-const render=()=>{root.innerHTML="";S._cells.clear();S.props={list:[]};const m=/status\\/(\\d+)/.exec(location.pathname);
-if(!m){if(location.pathname!=="/someone"){const a=document.createElement("article");a.dataset.testid="tweet";a.innerHTML='<a href="/z/status/5003" role="link"><time>1h</time></a><p data-testid="tweetText">in the panel</p>';content.append(a)}return}
-const id=+m[1];const inThread=id>=5000&&id<6000;
+const render=()=>{if(mediaRe.test(location.pathname)){layers.style.pointerEvents="auto";layers.innerHTML='<div role="dialog" style="position:fixed;inset:0;background:#000"><div id="media-stage" style="height:200px">photo '+location.pathname+'</div><article data-testid="tweet" id="media-reply"><a href="/x/status/5900" role="link"><time>1h</time></a><p data-testid="tweetText">media reply 5900</p></article></div>';layers.querySelector("#media-reply").addEventListener("click",(e)=>{e.preventDefault();go("/x/status/5900")});return}
+layers.innerHTML="";layers.style.pointerEvents="none";
+const m=/status\\/(\\d+)/.exec(location.pathname);
+if(m&&renderedId===+m[1]&&root.children.length>0)return;
+root.innerHTML="";S._cells.clear();S.props={list:[]};
+if(!m){renderedId=null;if(location.pathname!=="/someone"){const a=document.createElement("article");a.dataset.testid="tweet";a.innerHTML='<a href="/z/status/5003" role="link"><time>1h</time></a><p data-testid="tweetText">in the panel</p>';content.append(a)}return}
+const id=+m[1];renderedId=id;const inThread=id>=5000&&id<6000;
 const isArticle=id===5600;
-const focal=cellFor("tweet-"+id,'<article data-testid="tweet" style="position:relative;z-index:0;height:'+(window.__focalHeight||300)+'px">post '+id+(isArticle?'<div id="head" style="position:relative;z-index:2;height:60px">header</div><div style="position:relative;z-index:0"><div role="group" id="compact" style="max-width:300px"><button data-testid="reply">reply</button></div></div>':'')+'<div style="position:relative;z-index:0"><div role="group" id="postbar"'+(isArticle?' style="max-width:none"':'')+'><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>');
+const focal=cellFor("tweet-"+id,'<article data-testid="tweet" style="position:relative;z-index:0;height:'+(window.__focalHeight||300)+'px">post '+id+'<a class="focal-photo" href="/x/status/'+id+'/photo/1" style="display:inline-block"><div data-testid="tweetPhoto" style="width:40px;height:20px;background:#333"></div></a><a class="quoted-photo" href="/other/status/8888/photo/1" style="display:inline-block"><div data-testid="tweetPhoto" style="width:40px;height:20px;background:#555"></div></a>'+(isArticle?'<div id="head" style="position:relative;z-index:2;height:60px">header</div><div style="position:relative;z-index:0"><div role="group" id="compact" style="max-width:300px"><button data-testid="reply">reply</button></div></div>':'')+'<div style="position:relative;z-index:0"><div role="group" id="postbar"'+(isArticle?' style="max-width:none"':'')+'><button data-testid="reply">reply</button><button aria-haspopup="menu">share</button></div></div><div><div><button aria-haspopup="menu" id="sort">相关</button></div></div></article><div><div data-testid="tweetTextarea_0">box</div></div>');
+for(const a of focal.querySelectorAll(".focal-photo, .quoted-photo"))a.addEventListener("click",(e)=>{e.preventDefault();go(a.getAttribute("href"))});
 root.append(focal);
 const replies=inThread?[5900,5901,5902]:[];
 const replyCells=replies.map((n)=>{const c=cellFor("conversationthread-"+n+"-tweet-"+n,'<article data-testid="tweet" style="height:120px"><a href="/x/status/'+n+'" role="link"><time>1h</time></a><p data-testid="tweetText">'+(n===5901?"reply with mutedword":"reply "+n)+'</p></article>');c.querySelector("article").addEventListener("click",()=>go("/x/status/"+n));root.append(c);return c});
@@ -81,6 +89,7 @@ above.map((n)=>{const c=cellFor("tweet-"+n,'<article data-testid="tweet" style="
 S.props={list:[...above.map((n)=>({id:"tweet-"+n})),...after]};
 },window.__chainDelay===undefined?120:window.__chainDelay)};
 render();addEventListener("popstate",render);
+addEventListener("keydown",(e)=>{if(e.key==="Escape"&&layers.querySelector('[role="dialog"]'))history.back()});
 </script>`);
 const third = `<!doctype html><title>third</title><iframe id="f" src="https://x.com/notifications"></iframe><iframe id="g" src="https://x.com/robots.txt?xm-panel=%2Fnotifications"></iframe>`;
 
@@ -1023,6 +1032,290 @@ await p.locator('[data-xm-placed] [data-testid="like"]').first().click();
 await p.waitForTimeout(150);
 check("buttons on a card don't open it", !(await postState()).open);
 
+// ---- feed scroll lock while an overlay is open ----------------------------------------
+{
+  await p.evaluate(() => window.scrollTo(0, 1200));
+  await p.waitForTimeout(350);
+  const yLocked = await p.evaluate(() => window.scrollY);
+  // Text selection inside a card still prevents opening the post window.
+  const sel = await p.evaluate(() => {
+    const pEl = [...document.querySelectorAll('[data-xm-placed] [data-testid="tweetText"]')].find((e) => { const r = e.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 80; });
+    const range = document.createRange();
+    range.selectNodeContents(pEl);
+    const s = getSelection();
+    s.removeAllRanges();
+    s.addRange(range);
+    pEl.click();
+    const open = document.documentElement.hasAttribute("data-xm-post-open");
+    s.removeAllRanges();
+    return { open, text: pEl.textContent };
+  });
+  check("selecting text in a card doesn't open the post window", !sel.open, sel);
+
+  await p.evaluate(() => {
+    const pEl = [...document.querySelectorAll('[data-xm-placed] [data-testid="tweetText"]')].find((e) => { const r = e.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 80; });
+    pEl.click();
+  });
+  await p.waitForTimeout(450);
+  const frameOverscroll = await postFrameOf().evaluate(() => getComputedStyle(document.documentElement).overscrollBehavior);
+  check("framed pages contain overscroll so they don't chain to the feed", frameOverscroll === "contain", frameOverscroll);
+
+  // WebKit lets focus() and scrollIntoView() inside a fixed iframe scroll window.top synchronously.
+  const syncRestore = await postFrameOf().evaluate(() => {
+    const startY = window.top.scrollY;
+    const btn = document.createElement("button");
+    btn.textContent = "probe";
+    btn.addEventListener("focus", () => window.top.scrollTo(0, startY + 600));
+    document.body.append(btn);
+    btn.focus();
+    const afterFocus = { topY: window.top.scrollY, active: document.activeElement === btn };
+    btn.remove();
+
+    const tall = document.createElement("div");
+    tall.style.cssText = "position:absolute;top:1600px;height:40px;width:40px";
+    document.body.append(tall);
+    window.scrollTo(0, 0);
+    tall.scrollIntoView({
+      get block() {
+        window.top.scrollTo(0, startY + 500);
+        return "start";
+      },
+    });
+    const afterIntoView = { topY: window.top.scrollY, frameY: window.scrollY };
+    tall.remove();
+    window.scrollTo(0, 0);
+    return { startY, afterFocus, afterIntoView };
+  });
+  check("focus and scrollIntoView in a frame restore top scroll synchronously while working inside the frame", syncRestore.afterFocus.topY === yLocked && syncRestore.afterFocus.active && syncRestore.afterIntoView.topY === yLocked && syncRestore.afterIntoView.frameY > 0, syncRestore);
+
+  // Forced top-window scroll and wheel over scrim do not move the feed while the post window is open.
+  await p.evaluate((y) => window.scrollTo(0, y + 500), yLocked);
+  await p.waitForTimeout(150);
+  const yAfterForce = await p.evaluate(() => window.scrollY);
+  await p.mouse.move(20, 860);
+  await p.mouse.wheel(0, 400);
+  await p.waitForTimeout(200);
+  const yAfterScrimWheel = await p.evaluate(() => window.scrollY);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const yAfterClose = await p.evaluate(() => window.scrollY);
+  check("opening, scrolling scrim, or forced scroll leaves the vertical feed locked through close", yLocked > 800 && yAfterForce === yLocked && yAfterScrimWheel === yLocked && yAfterClose === yLocked, { yLocked, yAfterForce, yAfterScrimWheel, yAfterClose });
+
+  await railLink("Profile").click();
+  await p.waitForTimeout(350);
+  const panelOverscroll = await frameOf("/inkks").evaluate(() => getComputedStyle(document.documentElement).overscrollBehavior);
+  await p.mouse.move(1400, 400);
+  await p.mouse.wheel(0, 400);
+  await p.waitForTimeout(200);
+  const yAfterPanelWheel = await p.evaluate(() => window.scrollY);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  check("the side panel also contains overscroll and locks feed wheel over its scrim", panelOverscroll === "contain" && yAfterPanelWheel === yLocked && (await p.evaluate(() => window.scrollY)) === yLocked, { panelOverscroll, yAfterPanelWheel, yLocked });
+}
+
+// ---- replies inside X's native photo viewer -------------------------------------------
+{
+  await p.evaluate(() => {
+    let layers = document.getElementById("layers");
+    if (!layers) {
+      layers = document.createElement("div");
+      layers.id = "layers";
+      layers.style.cssText = "position:fixed;inset:0;z-index:1;pointer-events:none";
+      document.body.append(layers);
+    }
+    window.__mediaNavLeft = 0;
+    const closeViewer = () => {
+      layers.innerHTML = "";
+      layers.style.pointerEvents = "none";
+      if (location.pathname !== "/home") history.back();
+    };
+    window.__mediaEsc = (e) => {
+      if (e.key === "Escape" && layers.querySelector('[role="dialog"]')) closeViewer();
+    };
+    addEventListener("keydown", window.__mediaEsc);
+    const card = [...document.querySelectorAll("[data-xm-placed] article")].find((a) => { const r = a.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 80; });
+    const photo = document.createElement("div");
+    photo.id = "native-card-photo";
+    photo.dataset.testid = "tweetPhoto";
+    photo.style.cssText = "height:18px;background:#444;cursor:pointer";
+    photo.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      history.pushState(null, "", "/x/status/42/photo/1");
+      layers.style.pointerEvents = "auto";
+      layers.innerHTML = '<div role="dialog" style="position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex"><div data-testid="tweetPhoto" id="native-photo" style="width:60%;height:100%">big photo</div><div style="width:40%;padding:20px"><article data-testid="tweet" id="native-reply"><a href="/replyuser/status/5002" role="link"><time>1h</time></a><p data-testid="tweetText">reply inside media viewer</p><button data-testid="like" id="native-like">like</button><div data-testid="tweetPhoto" id="native-reply-photo" style="height:16px;background:#666"></div></article><a href="/i/status/5003" id="native-more">show more replies</a></div></div>';
+      window.__mediaControlClicks = 0;
+      for (const id of ["native-photo", "native-like", "native-reply-photo"]) {
+        layers.querySelector("#" + id).addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          window.__mediaControlClicks++;
+        });
+      }
+      layers.querySelector("#native-reply").addEventListener("click", () => {
+        window.__mediaNavLeft++;
+        history.pushState(null, "", "/replyuser/status/5002");
+      });
+    });
+    card.append(photo);
+  });
+
+  await p.locator("#native-card-photo").click();
+  await p.waitForTimeout(250);
+  const viewerOpen = await p.evaluate(() => ({ path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on"), post: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]') }));
+  check("clicking a card photo opens X's native media viewer and keeps the board active", viewerOpen.path === "/x/status/42/photo/1" && viewerOpen.on && !viewerOpen.post && viewerOpen.dialog, viewerOpen);
+
+  await p.locator("#native-photo").click();
+  await p.locator("#native-like").click();
+  await p.locator("#native-reply-photo").click();
+  await p.waitForTimeout(200);
+  const nonPostClicks = await p.evaluate(() => ({ post: document.documentElement.hasAttribute("data-xm-post-open"), path: location.pathname, controls: window.__mediaControlClicks }));
+  check("clicking photos or buttons inside the native media viewer isn't intercepted", !nonPostClicks.post && nonPostClicks.path === "/x/status/42/photo/1" && nonPostClicks.controls === 3, nonPostClicks);
+
+  await p.locator('#native-reply [data-testid="tweetText"]').click();
+  await p.waitForTimeout(450);
+  const replyOpened = await p.evaluate(() => ({
+    open: document.documentElement.hasAttribute("data-xm-post-open"),
+    path: location.pathname,
+    on: document.documentElement.hasAttribute("data-xm-on"),
+    left: window.__mediaNavLeft,
+    href: document.querySelector("#xm-post iframe")?.dataset.xmHref,
+    dialog: !!document.querySelector('#layers [role="dialog"]'),
+    above: Number(getComputedStyle(document.querySelector("#xm-post")).zIndex) > Number(getComputedStyle(document.querySelector("#layers")).zIndex),
+  }));
+  check("clicking a reply inside the native media viewer opens it in the post window above the viewer", replyOpened.open && replyOpened.path === "/x/status/42/photo/1" && replyOpened.on && replyOpened.left === 0 && replyOpened.href === "/replyuser/status/5002" && replyOpened.dialog && replyOpened.above, replyOpened);
+
+  // Escape with focus on top window closes the post window first, leaving the native photo viewer open.
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const afterEsc1 = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname }));
+  check("Esc on top window closes the post window first and keeps the native photo viewer open", !afterEsc1.open && afterEsc1.dialog && afterEsc1.path === "/x/status/42/photo/1", afterEsc1);
+
+  // Clicking "show more replies" inside the dialog opens it too, and Esc from inside the iframe closes only the post window.
+  await p.locator("#native-more").click();
+  await p.waitForTimeout(400);
+  await postFrameOf().locator("[data-xm-focal]").click({ position: { x: 5, y: 5 } });
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const afterEscIframe = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname }));
+  check("Esc from inside the post iframe also leaves the native photo viewer intact", !afterEscIframe.open && afterEscIframe.dialog && afterEscIframe.path === "/x/status/42/photo/1", afterEscIframe);
+
+  // Second Escape closes the native photo viewer back to /home.
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const afterEsc2 = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on") }));
+  check("a second Esc closes the native photo viewer back to the feed", !afterEsc2.open && !afterEsc2.dialog && afterEsc2.path === "/home" && afterEsc2.on, afterEsc2);
+
+  await p.evaluate(() => {
+    removeEventListener("keydown", window.__mediaEsc);
+    document.getElementById("native-card-photo")?.remove();
+    document.getElementById("layers")?.remove();
+  });
+}
+
+// ---- fullscreen media inside the post window ------------------------------------------
+{
+  await p.evaluate(() => {
+    const a = document.querySelector('[data-xm-placed] article a[role="link"]');
+    a.setAttribute("href", "/x/status/5004");
+    a.querySelector("time").click();
+  });
+  await p.waitForTimeout(60);
+  await loadingCleared();
+  await p.waitForTimeout(350);
+
+  const boxOf = () => p.evaluate(() => {
+    const pe = document.querySelector("#xm-post");
+    const r = pe.getBoundingClientRect();
+    return {
+      open: document.documentElement.hasAttribute("data-xm-post-open"),
+      media: document.documentElement.hasAttribute("data-xm-post-media"),
+      left: Math.round(r.left),
+      top: Math.round(r.top),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+      radius: getComputedStyle(pe).borderRadius,
+      vw: document.documentElement.clientWidth,
+      iw: innerWidth,
+      ih: innerHeight,
+    };
+  });
+  const floatBox = await boxOf();
+
+  // Mark the focal cell and watch for any standDown or pending flash.
+  await postFrameOf().evaluate(() => {
+    const focal = document.querySelector("[data-xm-focal]");
+    focal.__xmKeep = 1;
+    window.__mediaAudit = { standDown: false, pending: false };
+    window.__mediaObs = new MutationObserver(() => {
+      if (!document.documentElement.hasAttribute("data-xm-post")) window.__mediaAudit.standDown = true;
+      if (document.documentElement.hasAttribute("data-xm-post-pending")) window.__mediaAudit.pending = true;
+    });
+    window.__mediaObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-xm-post", "data-xm-post-pending"] });
+  });
+
+  // Clicking the focal post's photo expands the post window to full viewport.
+  await postFrameOf().locator(".focal-photo").click();
+  await p.waitForTimeout(250);
+  const fullFocal = await boxOf();
+  const layerCheck = await postFrameOf().evaluate(() => {
+    const layers = document.getElementById("layers");
+    const actions = document.querySelector("[data-xm-actions]");
+    const ar = actions.getBoundingClientRect();
+    const hit = document.elementFromPoint(100, ar.top + 5);
+    const focal = document.querySelector("[data-xm-focal]");
+    const beforeTop = focal.getBoundingClientRect().top;
+    focal.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
+    return {
+      mediaAttr: document.documentElement.hasAttribute("data-xm-media"),
+      layersZ: Number(getComputedStyle(layers).zIndex),
+      actionsZ: Number(getComputedStyle(actions).zIndex),
+      hitInLayers: !!(hit && hit.closest("#layers")),
+      focalMoved: focal.getBoundingClientRect().top !== beforeTop,
+    };
+  });
+  check("clicking a photo inside the post window expands it to full viewport", fullFocal.open && fullFocal.media && fullFocal.left === 0 && fullFocal.top === 0 && fullFocal.width === fullFocal.vw && fullFocal.height === fullFocal.ih && fullFocal.radius === "0px" && floatBox.width < fullFocal.vw, { floatBox, fullFocal });
+  check("fullscreen media places #layers above the pinned action bar and blocks background pane wheel", layerCheck.mediaAttr && layerCheck.layersZ > layerCheck.actionsZ && layerCheck.hitInLayers && !layerCheck.focalMoved, layerCheck);
+
+  // Escape inside the iframe shrinks back to floating post window with layout intact.
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const backFromFocal = await boxOf();
+  const audit1 = await postFrameOf().evaluate(() => ({ keep: document.querySelector("[data-xm-focal]")?.__xmKeep === 1, path: location.pathname, ...window.__mediaAudit }));
+  check("closing the photo shrinks back to the floating window without tearing down the post view", backFromFocal.open && !backFromFocal.media && backFromFocal.width === floatBox.width && backFromFocal.height === floatBox.height && audit1.keep && !audit1.standDown && !audit1.pending && audit1.path === "/x/status/5004", { backFromFocal, audit1 });
+
+  // Clicking a quoted/reply photo (different status ID) also expands without standDown or pending flash.
+  await postFrameOf().locator(".quoted-photo").click();
+  await p.waitForTimeout(250);
+  const fullQuoted = await boxOf();
+  const auditQuoted = await postFrameOf().evaluate(() => ({ keep: document.querySelector("[data-xm-focal]")?.__xmKeep === 1, path: location.pathname, ...window.__mediaAudit }));
+  check("clicking a quoted/reply photo expands to full viewport without standing down the focal post", fullQuoted.open && fullQuoted.media && fullQuoted.left === 0 && fullQuoted.top === 0 && fullQuoted.width === fullQuoted.vw && fullQuoted.height === fullQuoted.ih && auditQuoted.keep && !auditQuoted.standDown && !auditQuoted.pending && auditQuoted.path === "/other/status/8888/photo/1", { fullQuoted, auditQuoted });
+
+  // Escape with focus on the top window dismisses the media overlay instead of closing the whole post window.
+  await postFrameOf().evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
+  await p.evaluate(() => { window.focus(); document.body.tabIndex = -1; document.body.focus(); });
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const backFromTopEsc = await boxOf();
+  const audit2 = await postFrameOf().evaluate(() => ({ keep: document.querySelector("[data-xm-focal]")?.__xmKeep === 1, path: location.pathname, ...window.__mediaAudit }));
+  check("Esc on the top window dismisses fullscreen media and returns cleanly to the floating post window", backFromTopEsc.open && !backFromTopEsc.media && backFromTopEsc.width === floatBox.width && audit2.keep && !audit2.standDown && !audit2.pending && audit2.path === "/x/status/5004", { backFromTopEsc, audit2 });
+
+  // Clicking a reply inside fullscreen media shrinks back and loads the reply as the new focal post.
+  await postFrameOf().evaluate(() => { window.__mediaObs.disconnect(); window.__chainDelay = 0; });
+  await postFrameOf().locator(".quoted-photo").click();
+  await p.waitForTimeout(250);
+  await postFrameOf().locator("#media-reply").click();
+  await p.waitForTimeout(350);
+  const afterMediaReply = await boxOf();
+  const newFocal = await postFrameOf().evaluate(() => ({ on: document.documentElement.hasAttribute("data-xm-post"), media: document.documentElement.hasAttribute("data-xm-media"), path: location.pathname, text: document.querySelector("[data-xm-focal]")?.textContent.slice(0, 9) }));
+  check("clicking a reply inside fullscreen media shrinks back and shows the reply as the focal post", afterMediaReply.open && !afterMediaReply.media && afterMediaReply.width === floatBox.width && newFocal.on && !newFocal.media && newFocal.path === "/x/status/5900" && newFocal.text.startsWith("post 5900"), { afterMediaReply, newFocal });
+
+  await postFrameOf().evaluate(() => { delete window.__chainDelay; });
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(200);
+  await p.evaluate(() => window.scrollTo(0, 0));
+  await p.waitForTimeout(300);
+}
+
 // ---- sideways flow --------------------------------------------------------------------
 const flowBtnBox = await p.locator("#xm-flow-btn").boundingBox();
 const grokBox = await p.locator('[data-testid="GrokDrawer"] button:not(#xm-flow-btn)').boundingBox();
@@ -1183,6 +1476,57 @@ await p.waitForTimeout(150);
 const tallState = await p.evaluate(() => { const c = document.getElementById("tall"); return { top: c.scrollTop, h: c.clientHeight, sh: c.scrollHeight, sl: document.querySelector("[data-xm-board]").scrollLeft }; });
 check("a card taller than its column scrolls itself", tall && tallState.top > 200 && Math.abs(tallState.sl - slBefore) < 2 && tallState.h <= (await flow()).ch, { tallState, slBefore });
 await p.waitForTimeout(250);
+
+// multi-photo carousel inside a card disables mandatory snap and receives small sideways scrolls
+{
+  const setup = await p.evaluate(() => {
+    const c = [...document.querySelectorAll("[data-xm-placed]")].find((e) => {
+      if (e.id === "tall") return false;
+      const r = e.getBoundingClientRect();
+      return r.left > 100 && r.right < innerWidth && r.top > 0 && r.bottom < innerHeight;
+    });
+    const wrap = document.createElement("div");
+    wrap.id = "carousel-wrap";
+    wrap.dataset.testid = "ScrollSnap-SwipeableList";
+    wrap.innerHTML = '<div id="carousel-list" data-testid="ScrollSnap-List" style="display:flex;overflow-x:auto;scroll-snap-type:x mandatory;width:100%">' + [1, 2, 3].map((n) => `<div style="flex:0 0 300px;height:60px;scroll-snap-align:start;background:#222">img ${n}</div>`).join("") + "</div>";
+    c.querySelector("article").prepend(wrap);
+    const tabsList = document.querySelector('[data-xm-tabs] [data-testid="ScrollSnap-List"]');
+    tabsList.style.scrollSnapType = "x mandatory";
+    const tabSnap = getComputedStyle(tabsList).scrollSnapType;
+    tabsList.style.scrollSnapType = "";
+    const car = document.getElementById("carousel-list");
+    return { snap: getComputedStyle(car).scrollSnapType, tabSnap, sw: car.scrollWidth, cw: car.clientWidth };
+  });
+  check("multi-photo carousels in the board disable mandatory snap while leaving tabs untouched", setup.snap === "none" && setup.tabSnap.includes("mandatory") && setup.sw > setup.cw + 100, setup);
+
+  const carBox = await p.locator("#carousel-list").boundingBox();
+  await p.mouse.move(carBox.x + 60, carBox.y + 20);
+  await p.waitForTimeout(250);
+  const beforeSmall = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  for (let i = 0; i < 6; i++) { await p.mouse.wheel(2, 0); await p.waitForTimeout(16); }
+  await p.waitForTimeout(120);
+  const afterSmall = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  check("small sideways wheel steps over a card's multi-photo carousel scroll the carousel, not the board", afterSmall.car > beforeSmall.car + 5 && Math.abs(afterSmall.board - beforeSmall.board) < 2, { beforeSmall, afterSmall });
+
+  await p.waitForTimeout(250);
+  const beforeWobble = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  await p.mouse.wheel(0, -1);
+  await p.mouse.wheel(1, -1);
+  for (let i = 0; i < 5; i++) { await p.mouse.wheel(14, -2); await p.waitForTimeout(16); }
+  await p.waitForTimeout(120);
+  const afterWobble = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  check("a sideways swipe with vertical wobble over a carousel still scrolls the carousel", afterWobble.car > beforeWobble.car + 40 && Math.abs(afterWobble.board - beforeWobble.board) < 2, { beforeWobble, afterWobble });
+
+  await p.evaluate(() => { const car = document.getElementById("carousel-list"); car.scrollLeft = car.scrollWidth; });
+  await p.waitForTimeout(250);
+  const beforeEdge = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  for (let i = 0; i < 6; i++) { await p.mouse.wheel(2, 0); await p.waitForTimeout(16); }
+  await p.waitForTimeout(120);
+  const afterEdge = await p.evaluate(() => ({ car: document.getElementById("carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  check("once at the carousel's edge, further sideways scrolling moves the outer board", afterEdge.board > beforeEdge.board + 5, { beforeEdge, afterEdge });
+  await p.evaluate(() => document.getElementById("carousel-wrap")?.remove());
+  await p.waitForTimeout(250);
+}
 await p.locator("#xm-flow-btn").click();
 await p.waitForTimeout(600);
 fl = await flow();

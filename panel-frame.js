@@ -52,6 +52,31 @@ if (window !== window.top) {
     const theme = window.__xmCommon.settings().theme;
     if (theme !== "auto") document.documentElement.setAttribute("data-xm-theme", theme);
 
+    // WebKit lets scrollIntoView and focus inside a fixed iframe scroll the feed behind it.
+    const keepTopScroll = (proto, name) => {
+      const original = proto[name];
+      if (typeof original !== "function") return;
+      proto[name] = function (...args) {
+        let x, y;
+        try {
+          x = window.top.scrollX;
+          y = window.top.scrollY;
+        } catch {
+          return original.apply(this, args);
+        }
+        try {
+          return original.apply(this, args);
+        } finally {
+          try {
+            if (window.top.scrollX !== x || window.top.scrollY !== y) window.top.scrollTo(x, y);
+          } catch {}
+        }
+      };
+    };
+    keepTopScroll(Element.prototype, "scrollIntoView");
+    keepTopScroll(Element.prototype, "scrollIntoViewIfNeeded");
+    keepTopScroll(HTMLElement.prototype, "focus");
+
     const history = window.history;
 
     if (location.pathname === X_ENTRY && target) {
@@ -145,6 +170,7 @@ if (window !== window.top) {
 // ancestor clips or scrolls. If X renames any of this the page stays X's normal one column.
 function startPostView() {
   const STATUS = /^\/[^/]+\/status\/(\d+)/;
+  const MEDIA_ROUTE = /^\/(?:[^/]+\/status\/\d+\/(?:photo|video)\/\d+|[^/]+\/(?:photo|header_photo))(?=\/|$)/;
   const CHAIN_TOP = 12; // px above the first post of a conversation
   const PENDING_MS = 3000; // how long to hide a page in between posts if the post doesn't come
   const root = document.documentElement;
@@ -158,6 +184,7 @@ function startPostView() {
   let wanted = null; // the post the address asks for
   let readyFor = null;
   let pendingTimer = 0;
+  let mediaOpen = false;
 
   Object.defineProperty(window, "scroller", {
     configurable: true,
@@ -281,7 +308,7 @@ function startPostView() {
     "wheel",
     (e) => {
       const focal = marked[0];
-      if (!focal || e.ctrlKey || !e.deltaY || !e.cancelable || !e.target.closest) return;
+      if (!focal || mediaOpen || e.ctrlKey || !e.deltaY || !e.cancelable || !e.target.closest) return;
       if (e.clientX >= focal.offsetWidth) return;
       if (e.target.closest('[data-xm-actions], [data-xm-composer], [data-xm-sort], #layers, [role="dialog"]')) return;
       if (movePost(postOffset + e.deltaY * (e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : 1))) e.preventDefault();
@@ -319,6 +346,7 @@ function startPostView() {
   // Keeps the pane's parts together as they change, like the reply box growing as you type,
   // without waiting for the next tick.
   const heights = new ResizeObserver(() => {
+    if (mediaOpen) return;
     updateHeights();
     layoutLeft();
   });
@@ -410,8 +438,18 @@ function startPostView() {
     }
   }
 
+  function syncMedia() {
+    const on = MEDIA_ROUTE.test(location.pathname);
+    if (root.hasAttribute("data-xm-media") !== on) root.toggleAttribute("data-xm-media", on);
+    if (on === mediaOpen) return;
+    mediaOpen = on;
+    window.top.postMessage({ xm: "post-media", on }, location.origin);
+  }
+
   function tick() {
     if (windowClosed()) return;
+    syncMedia();
+    if (mediaOpen) return;
     const match = STATUS.exec(location.pathname);
     const S = liveList();
     if (!match) {
