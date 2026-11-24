@@ -6,7 +6,19 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <h1>mltx</h1>
+    <header class="head">
+      <h1>mltx</h1>
+      <button type="button" id="version" class="ver" aria-expanded="false" aria-controls="changelog" hidden></button>
+      <span id="versionLabel" class="ver-plain" hidden></span>
+    </header>
+
+    <section class="whats-new" id="changelog" aria-labelledby="changelogTitle" hidden>
+      <div class="whats-new-head">
+        <strong id="changelogTitle"></strong>
+        <button type="button" id="changelogClose" class="whats-new-close">&times;</button>
+      </div>
+      <ul id="changelogList"></ul>
+    </section>
 
     <label class="row stack" for="mute">
       <span data-i18n="mute"></span>

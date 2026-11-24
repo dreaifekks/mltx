@@ -8,8 +8,18 @@ const colsBox = document.getElementById("cols");
 const keepBox = document.getElementById("panelKeep");
 const langBox = document.getElementById("lang");
 const note = document.getElementById("note");
+const versionBtn = document.getElementById("version");
+const versionLabel = document.getElementById("versionLabel");
+const changelogBox = document.getElementById("changelog");
+const changelogTitle = document.getElementById("changelogTitle");
+const changelogList = document.getElementById("changelogList");
+const changelogClose = document.getElementById("changelogClose");
+
+const currentVersion = ext.runtime.getManifest().version;
+const hasChangelog = !!globalThis.__xmI18n.changelog("en", currentVersion);
 
 let settings = {};
+let seenVersion = null;
 let muteTimer = 0;
 
 const parseMute = (text) => {
@@ -49,6 +59,34 @@ function showLanguage(setting) {
   document.documentElement.lang = lang;
   for (const el of document.querySelectorAll("[data-i18n]")) el.textContent = globalThis.__xmI18n.t(lang, el.dataset.i18n);
   muteBox.placeholder = globalThis.__xmI18n.t(lang, "mutePlaceholder");
+  if (!hasChangelog) return;
+  const tip = globalThis.__xmI18n.t(lang, "whatsNew");
+  versionBtn.title = tip;
+  versionBtn.setAttribute("aria-label", `v${currentVersion} ${tip}`);
+  changelogTitle.textContent = globalThis.__xmI18n.t(lang, "whatsNewTitle").replace("{v}", currentVersion);
+  changelogClose.setAttribute("aria-label", globalThis.__xmI18n.t(lang, "close"));
+  const items = globalThis.__xmI18n.changelog(lang, currentVersion) || [];
+  changelogList.replaceChildren(
+    ...items.map((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      return li;
+    }),
+  );
+}
+
+function markSeen() {
+  versionBtn.removeAttribute("data-unread");
+  if (seenVersion === currentVersion) return;
+  seenVersion = currentVersion;
+  ext.storage.local.set({ seenVersion: currentVersion });
+}
+
+function setChangelogOpen(open) {
+  if (!hasChangelog) return;
+  changelogBox.hidden = !open;
+  versionBtn.setAttribute("aria-expanded", String(open));
+  if (open) markSeen();
 }
 
 function fill() {
@@ -89,10 +127,28 @@ for (const input of document.querySelectorAll('input[type="radio"]')) {
   });
 }
 
+if (hasChangelog) {
+  versionBtn.textContent = `v${currentVersion}`;
+  versionBtn.hidden = false;
+  versionBtn.addEventListener("click", () => setChangelogOpen(changelogBox.hidden));
+  changelogClose.addEventListener("click", () => setChangelogOpen(false));
+} else {
+  versionLabel.textContent = `v${currentVersion}`;
+  versionLabel.hidden = false;
+}
+
 showLanguage("auto"); // until the stored setting arrives
-ext.storage.local.get("settings").then((stored) => {
+ext.storage.local.get(["settings", "seenVersion"]).then((stored) => {
   settings = stored.settings || {};
   fill();
+  if (!hasChangelog || seenVersion === currentVersion) return;
+  seenVersion = stored.seenVersion || null;
+  if (seenVersion === currentVersion) return;
+  if (seenVersion || stored.settings) {
+    versionBtn.setAttribute("data-unread", "");
+  } else {
+    markSeen();
+  }
 });
 
 // Changed from the page while this is open, by Alt + - and =.

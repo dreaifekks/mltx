@@ -52,10 +52,112 @@ body {
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-h1 {
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 0 0 12px;
+}
+
+h1 {
+  margin: 0;
   font-size: 15px;
   font-weight: 700;
+}
+
+.ver-plain {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ver {
+  position: relative;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
+}
+
+.ver:hover,
+.ver[aria-expanded="true"] {
+  color: var(--fg);
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.ver[data-unread]::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgb(29 155 240);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.whats-new {
+  margin: 0 0 14px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+.whats-new-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.whats-new-head strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.whats-new-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px -4px -2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.whats-new-close:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.whats-new ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.whats-new li + li {
+  margin-top: 4px;
 }
 
 .row {
@@ -160,7 +262,9 @@ small {
 }
 
 textarea:focus-visible,
-select:focus-visible {
+select:focus-visible,
+.ver:focus-visible,
+.whats-new-close:focus-visible {
   outline: 2px solid rgb(29 155 240);
   outline-offset: -1px;
 }
