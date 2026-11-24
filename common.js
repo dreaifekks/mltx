@@ -143,7 +143,7 @@
   // ---- clicks on posts -------------------------------------------------------------------
 
   // Parts of a card that do something of their own when clicked.
-  const CARD_CONTROLS = 'button, input, textarea, video, [role="button"], [role="menuitem"], [role="slider"], [role="radio"], [role="checkbox"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid^="card."], [data-testid="cardPoll"]';
+  const CARD_CONTROLS = 'button, input, textarea, video, [role="button"], [role="menuitem"], [role="slider"], [role="radio"], [role="checkbox"], [data-testid="tweetPhoto"], [data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid^="card."], [data-testid="cardPoll"]';
   const SHOW_MORE = '[data-testid="tweet-text-show-more-link"]';
   const POST_PATH = /^\/[^/]+\/status\/\d+\/?$/;
 
@@ -191,7 +191,7 @@
     if (!target.closest(SHOW_MORE) && (target.closest(CARD_CONTROLS) || String(getSelection()))) return null;
     const quote = target.closest('[role="link"]');
     if (quote && quote !== own && quote !== article && article.contains(quote)) {
-      return target.closest('[data-testid="tweetPhoto"]') ? null : quotedPost(quote);
+      return quotedPost(quote);
     }
     return own.getAttribute("href");
   }

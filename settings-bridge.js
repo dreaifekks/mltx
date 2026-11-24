@@ -17,14 +17,18 @@
     } catch {}
   }
 
-  ext.storage.local.get("settings").then(({ settings }) => {
+  ext.storage.local.get(["settings", "seenVersion"]).then(({ settings, seenVersion }) => {
     if (settings) return publish(settings);
     if (window !== window.top) return;
     // First run: what the old flow switch and column keys had stored becomes the default.
-    const cols = parseInt(localStorage.getItem("xm-cols") || "", 10);
-    const seed = { flow: localStorage.getItem("xm-flow") === "h" ? "h" : "v", cols: cols >= 1 && cols <= 8 ? cols : 0 };
+    const oldFlow = localStorage.getItem("xm-flow");
+    const oldCols = localStorage.getItem("xm-cols");
+    const cols = parseInt(oldCols || "", 10);
+    const seed = { flow: oldFlow === "h" ? "h" : "v", cols: cols >= 1 && cols <= 8 ? cols : 0 };
     publish(seed);
-    ext.storage.local.set({ settings: seed });
+    const patch = { settings: seed };
+    if (!seenVersion && oldFlow === null && oldCols === null) patch.seenVersion = ext.runtime.getManifest().version;
+    ext.storage.local.set(patch);
     localStorage.removeItem("xm-flow");
     localStorage.removeItem("xm-cols");
   });

@@ -18,6 +18,10 @@ html[data-xm-theme="light"] body {
 
 /* X's own page inside the side panel: just the content column. */
 
+html[data-xm-panel] {
+  overscroll-behavior: contain;
+}
+
 html[data-xm-panel] header[role="banner"],
 html[data-xm-panel] [data-testid="sidebarColumn"],
 html[data-xm-panel] [data-testid="GrokDrawer"],
@@ -182,4 +186,32 @@ html[data-xm-post] [data-xm-sort] {
   padding: 10px 16px !important;
   box-sizing: border-box;
   border-bottom: 1px solid rgb(127 127 127 / 0.28);
+}
+
+/* Fullscreen media inside the post window: hide stretched panes and reveal once laid out. */
+html[data-xm-panel][data-xm-media],
+html[data-xm-panel][data-xm-media] body {
+  background: transparent !important;
+}
+
+html[data-xm-panel][data-xm-media] main,
+html[data-xm-post][data-xm-media] [data-xm-focal],
+html[data-xm-post][data-xm-media] [data-xm-chain],
+html[data-xm-post][data-xm-media] [data-xm-actions],
+html[data-xm-post][data-xm-media] [data-xm-composer],
+html[data-xm-post][data-xm-media] [data-xm-sort] {
+  visibility: hidden !important;
+}
+
+html[data-xm-post][data-xm-media] #layers {
+  z-index: 10 !important;
+}
+
+html[data-xm-panel][data-xm-media] #layers [role="dialog"] {
+  transition: opacity 75ms ease-out;
+}
+
+html[data-xm-panel][data-xm-media-pending] #layers [role="dialog"] {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }

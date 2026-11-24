@@ -36,6 +36,9 @@ globalThis.__xmI18n = (() => {
       flowToVertical: "切换到纵向流",
       flowToSideways: "切换到横向流",
       timelines: "时间线",
+      whatsNew: "更新内容",
+      whatsNewTitle: "v{v} 更新内容",
+      close: "关闭",
     },
     en: {
       mute: "Muted words",
@@ -69,6 +72,9 @@ globalThis.__xmI18n = (() => {
       flowToVertical: "Switch to vertical flow",
       flowToSideways: "Switch to sideways flow",
       timelines: "Timelines",
+      whatsNew: "What's new",
+      whatsNewTitle: "What's new in v{v}",
+      close: "Close",
     },
     ja: {
       mute: "ミュートワード",
@@ -102,6 +108,32 @@ globalThis.__xmI18n = (() => {
       flowToVertical: "縦スクロールに切り替え",
       flowToSideways: "横スクロールに切り替え",
       timelines: "タイムライン",
+      whatsNew: "更新内容",
+      whatsNewTitle: "v{v} の新機能",
+      close: "閉じる",
+    },
+  };
+
+  const CHANGELOG = {
+    "0.4.3": {
+      zh: [
+        "点开帖子浮窗后锁定背景瀑布流位置，不再意外向下滚动",
+        "点开图片进入原生视图后，点击下方回复也会在浮窗内打开",
+        "修复 Safari 中宽图多图卡片小幅滑动滚不到下一张的问题",
+        "在帖子浮窗内点击图片时直接占满整个浏览器页面显示",
+      ],
+      en: [
+        "Lock background feed scroll while the post window is open so the timeline stays put",
+        "Clicking replies inside X's native photo viewer now opens them in the post window",
+        "Fix small horizontal scrolls snapping back on wide multi-photo cards in Safari",
+        "Clicking an image inside the post window now expands it to fill the browser viewport",
+      ],
+      ja: [
+        "投稿ウィンドウ表示中に背景タイムラインのスクロール位置を固定",
+        "画像ビューア内の返信クリックも投稿ウィンドウで開くように改善",
+        "Safari で幅広の複数画像カードが小さなスクロールで進まない問題を修正",
+        "投稿ウィンドウ内の画像クリック時にブラウザ全体へ拡大表示",
+      ],
     },
   };
 
@@ -115,5 +147,10 @@ globalThis.__xmI18n = (() => {
     return "en";
   }
 
-  return { resolve, t: (setting, key) => STRINGS[resolve(setting)][key] };
+  function changelog(setting, version) {
+    const entry = CHANGELOG[version];
+    return entry ? entry[resolve(setting)] || entry.en : null;
+  }
+
+  return { resolve, t: (setting, key) => STRINGS[resolve(setting)][key], changelog };
 })();
