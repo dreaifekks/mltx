@@ -184,7 +184,7 @@ function startPostView() {
   let wanted = null; // the post the address asks for
   let readyFor = null;
   let pendingTimer = 0;
-  let mediaOpen = false;
+  let mediaOpen = null; // null until the first syncMedia() reports where this load landed
 
   Object.defineProperty(window, "scroller", {
     configurable: true,

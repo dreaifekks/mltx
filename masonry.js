@@ -120,6 +120,7 @@
   let backGuardOn = false;
   let backGuardMoves = 0; // our own traversals on their way, whose popstate isn't anyone else's
   let overlayScroll = null; // { y, sx, x } held while an overlay or its closing guard is active
+  let overlayUnlockRaf = 0;
 
   // X does `window.scroller = this` in the list's constructor.
   if (latestList) lists.push(latestList);
@@ -735,14 +736,27 @@
   function changeFlow(c, b, sideways) {
     const anchor = b.flow === "h" ? anchorSideways(b, b.x) : anchorAt(b, b.y - b.listTop - PAD);
     resetGesture();
-    overlayScroll = null;
     b.flow = sideways ? "h" : "v";
     if (!sideways) b.columns = []; // dealt again below
     b.dirty = true;
     b.restoreFrames = 0;
     b.topFrames = 0;
     if (anchor && b.placed.size) b.anchor = anchor;
-    if (!sideways) c.el.scrollLeft = 0;
+    if (overlayShowing()) {
+      lockFeedScroll();
+      if (sideways) {
+        overlayScroll.y = 0;
+        overlayScroll.sx = 0;
+        overlayScroll.x = c.el.scrollLeft;
+      } else {
+        scrollBoardTo(c.el, 0);
+        overlayScroll.y = scrollY;
+        overlayScroll.sx = scrollX;
+      }
+    } else {
+      clearOverlayScroll();
+      if (!sideways) c.el.scrollLeft = 0;
+    }
   }
 
   // ---- attach -------------------------------------------------------------
@@ -1200,8 +1214,39 @@
 
   const overlayShowing = () => !!panelHref || root.hasAttribute("data-xm-post-open");
 
+  function cancelOverlayUnlock() {
+    if (overlayUnlockRaf) {
+      cancelAnimationFrame(overlayUnlockRaf);
+      overlayUnlockRaf = 0;
+    }
+  }
+
+  function clearOverlayScroll() {
+    cancelOverlayUnlock();
+    overlayScroll = null;
+  }
+
   function lockFeedScroll() {
+    cancelOverlayUnlock();
     if (!overlayScroll) overlayScroll = { y: scrollY, sx: scrollX, x: current ? current.el.scrollLeft : 0 };
+  }
+
+  function scrollFeedTo(x, y) {
+    if (overlayScroll) {
+      overlayScroll.sx = x;
+      overlayScroll.y = y;
+    }
+    scrollTo(x, y);
+    if (overlayScroll) {
+      overlayScroll.sx = scrollX;
+      overlayScroll.y = scrollY;
+    }
+  }
+
+  function scrollBoardTo(el, left) {
+    if (overlayScroll) overlayScroll.x = left;
+    el.scrollLeft = left;
+    if (overlayScroll) overlayScroll.x = el.scrollLeft;
   }
 
   function restoreOverlayScroll() {
@@ -1230,7 +1275,7 @@
   // those means the button was pressed. Called whenever the overlays change. The entries are
   // copies of the feed's, in case they ever reach X, and left forward of it afterwards they
   // do nothing.
-  function syncBackGuard() {
+  function syncBackGuard(fromPopstate) {
     if (backGuardMoves) return; // comes back here when that lands
     const showing = overlayShowing();
     if (showing && !backGuardOn) {
@@ -1245,7 +1290,21 @@
     }
     if (overlayScroll) {
       restoreOverlayScroll();
-      if (!showing && !backGuardMoves) overlayScroll = null;
+      if (!showing && !backGuardMoves) {
+        if (fromPopstate) {
+          // Blink restores the entry's saved scroll after popstate, right before the next frame.
+          cancelOverlayUnlock();
+          overlayUnlockRaf = requestAnimationFrame(() => {
+            overlayUnlockRaf = 0;
+            if (!overlayShowing() && !backGuardMoves) {
+              restoreOverlayScroll();
+              overlayScroll = null;
+            }
+          });
+        } else {
+          clearOverlayScroll();
+        }
+      }
     }
   }
 
@@ -1254,7 +1313,7 @@
     if (backGuardMoves) {
       backGuardMoves--;
       e.stopImmediatePropagation();
-      syncBackGuard();
+      syncBackGuard(true);
     } else if (backGuardOn) {
       e.stopImmediatePropagation();
       const delta = history.state && history.state.xmGuard === "forward" ? 1 : -1;
@@ -1334,6 +1393,7 @@
     const now = performance.now();
     if (now - (frame.__xmRetriedAt || -Infinity) < PANEL_RETRY_MS) return;
     frame.__xmRetriedAt = now;
+    if (frame === postFrame) root.removeAttribute("data-xm-post-media");
     frame.src = panelEntryUrl(frame.dataset.xmHref);
   }
 
@@ -1611,7 +1671,7 @@
       homeSince = 0;
     }
     if (!want) {
-      overlayScroll = null;
+      clearOverlayScroll();
       if (current) detach();
       if (root.hasAttribute("data-xm-on")) root.removeAttribute("data-xm-on");
       if (root.hasAttribute("data-xm-tabs-open")) setTabsOpen(false);
@@ -1694,7 +1754,10 @@
       const held = sideways && !b.anchor && c.el.scrollLeft > 0 && b.columns[firstCol] ? b.columns[firstCol][0] : null;
       relayout(b);
       const now_ = held && b.placed.get(held);
-      if (now_ && now_.col !== firstCol) c.el.scrollLeft += (now_.col - firstCol) * stride;
+      if (now_ && now_.col !== firstCol) {
+        scrollBoardTo(c.el, c.el.scrollLeft + (now_.col - firstCol) * stride);
+        b.x = c.el.scrollLeft;
+      }
     }
     setVar("--xm-total", b.total + "px");
     if (sideways) setVar("--xm-total-w", b.totalW + "px");
@@ -1703,10 +1766,15 @@
       const top = b.tops.get(b.anchor.id);
       if (sideways) {
         const p = b.placed.get(b.anchor.id);
-        if (p) c.el.scrollLeft = p.col * (colw + GAP);
+        if (p) {
+          scrollBoardTo(c.el, p.col * (colw + GAP));
+          b.x = c.el.scrollLeft;
+        }
       } else if (top !== undefined) {
         const docTop = c.el.getBoundingClientRect().top + scrollY;
-        scrollTo(0, docTop + PAD + top - b.anchor.offset);
+        scrollFeedTo(0, docTop + PAD + top - b.anchor.offset);
+        b.y = scrollY;
+        b.listTop = docTop;
       }
       if (top === undefined || --b.anchor.frames <= 0) b.anchor = null;
     }
@@ -1761,7 +1829,7 @@
       console.error("[x-masonry]", e);
       quietFrames = 0;
       if (errors >= 3) {
-        overlayScroll = null;
+        clearOverlayScroll();
         try {
           detach();
         } catch {}
@@ -1799,10 +1867,14 @@
     const card = target.closest("[data-xm-placed]");
     if (!card) return null;
     for (let el = target; el && el !== card; el = el.parentElement) {
-      if (el.scrollWidth <= el.clientWidth + 1) continue;
-      const ox = getComputedStyle(el).overflowX;
-      if (ox !== "auto" && ox !== "scroll") continue;
-      if (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0) return el;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 1) continue;
+      const cs = getComputedStyle(el);
+      if (cs.overflowX !== "auto" && cs.overflowX !== "scroll") continue;
+      const room = cs.direction === "rtl"
+        ? (dx < 0 ? Math.abs(el.scrollLeft) < max - 1 : el.scrollLeft < -1)
+        : (dx > 0 ? el.scrollLeft < max - 1 : el.scrollLeft > 0);
+      if (room) return el;
     }
     return null;
   }
@@ -1892,7 +1964,7 @@
       type,
       (e) => {
         if (overlayScroll && !overlayShowing() && !(type === "keydown" && e.key === "Escape")) {
-          overlayScroll = null;
+          clearOverlayScroll();
         }
         if (current) {
           current.board.restoreFrames = 0;

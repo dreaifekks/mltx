@@ -1111,6 +1111,29 @@ check("buttons on a card don't open it", !(await postState()).open);
   await p.keyboard.press("Escape");
   await p.waitForTimeout(250);
   check("the side panel also contains overscroll and locks feed wheel over its scrim", panelOverscroll === "contain" && yAfterPanelWheel === yLocked && (await p.evaluate(() => window.scrollY)) === yLocked, { panelOverscroll, yAfterPanelWheel, yLocked });
+
+  // Changing column count while an overlay is open keeps the new anchored scroll position, even after anchor expiry and close.
+  await p.evaluate(() => {
+    const pEl = [...document.querySelectorAll('[data-xm-placed] [data-testid="tweetText"]')].find((e) => { const r = e.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 80; });
+    pEl.click();
+  });
+  await p.waitForTimeout(350);
+  await p.keyboard.press("Alt+Minus");
+  await p.waitForTimeout(150);
+  await p.keyboard.press("Alt+Minus");
+  await p.waitForTimeout(1700); // past b.anchor's 90-frame window
+  const yAnchored = await p.evaluate(() => window.scrollY);
+  await p.evaluate((y) => window.scrollTo(0, y), yLocked);
+  await p.waitForTimeout(150);
+  const yAfterStaleForce = await p.evaluate(() => window.scrollY);
+  await p.keyboard.press("Escape");
+  await p.waitForTimeout(250);
+  const yAfterAnchoredClose = await p.evaluate(() => window.scrollY);
+  check("changing columns while a post is open preserves the anchored scroll position after anchor expiry and close", yAnchored > yLocked + 300 && yAfterStaleForce === yAnchored && yAfterAnchoredClose === yAnchored, { yLocked, yAnchored, yAfterStaleForce, yAfterAnchoredClose });
+  await p.keyboard.press("Alt+Digit0");
+  await p.waitForTimeout(450);
+  await p.evaluate(() => window.scrollTo(0, 1200));
+  await p.waitForTimeout(300);
 }
 
 // ---- replies inside X's native photo viewer -------------------------------------------
@@ -1132,7 +1155,14 @@ check("buttons on a card don't open it", !(await postState()).open);
     window.__mediaEsc = (e) => {
       if (e.key === "Escape" && layers.querySelector('[role="dialog"]')) closeViewer();
     };
+    window.__mediaPop = () => {
+      if (location.pathname === "/home") {
+        layers.innerHTML = "";
+        layers.style.pointerEvents = "none";
+      }
+    };
     addEventListener("keydown", window.__mediaEsc);
+    addEventListener("popstate", window.__mediaPop);
     const card = [...document.querySelectorAll("[data-xm-placed] article")].find((a) => { const r = a.getBoundingClientRect(); return r.top > 80 && r.bottom < innerHeight - 80; });
     const photo = document.createElement("div");
     photo.id = "native-card-photo";
@@ -1205,8 +1235,27 @@ check("buttons on a card don't open it", !(await postState()).open);
   const afterEsc2 = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on") }));
   check("a second Esc closes the native photo viewer back to the feed", !afterEsc2.open && !afterEsc2.dialog && afterEsc2.path === "/home" && afterEsc2.on, afterEsc2);
 
+  // Browser Back from a post opened over the native photo viewer unwinds cleanly back to a scrollable feed.
+  await p.locator("#native-card-photo").click();
+  await p.waitForTimeout(250);
+  await p.locator('#native-reply [data-testid="tweetText"]').click();
+  await p.waitForTimeout(400);
+  await p.goBack({ waitUntil: "commit" });
+  await p.waitForTimeout(300);
+  const afterBack1 = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname }));
+  check("first browser Back closes the post window while leaving the native photo viewer open", !afterBack1.open && afterBack1.dialog && afterBack1.path === "/x/status/42/photo/1", afterBack1);
+  await p.goBack({ waitUntil: "commit" });
+  await p.waitForTimeout(300);
+  const afterBack2 = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-post-open"), dialog: !!document.querySelector('#layers [role="dialog"]'), path: location.pathname, on: document.documentElement.hasAttribute("data-xm-on"), y: window.scrollY }));
+  await p.mouse.move(800, 400);
+  await p.mouse.wheel(0, 400);
+  await p.waitForTimeout(250);
+  const yAfterBackScroll = await p.evaluate(() => window.scrollY);
+  check("second browser Back returns to /home and the feed scrolls normally afterwards", !afterBack2.open && !afterBack2.dialog && afterBack2.path === "/home" && afterBack2.on && yAfterBackScroll > afterBack2.y + 200, { afterBack2, yAfterBackScroll });
+
   await p.evaluate(() => {
     removeEventListener("keydown", window.__mediaEsc);
+    removeEventListener("popstate", window.__mediaPop);
     document.getElementById("native-card-photo")?.remove();
     document.getElementById("layers")?.remove();
   });
@@ -1299,8 +1348,26 @@ check("buttons on a card don't open it", !(await postState()).open);
   const audit2 = await postFrameOf().evaluate(() => ({ keep: document.querySelector("[data-xm-focal]")?.__xmKeep === 1, path: location.pathname, ...window.__mediaAudit }));
   check("Esc on the top window dismisses fullscreen media and returns cleanly to the floating post window", backFromTopEsc.open && !backFromTopEsc.media && backFromTopEsc.width === floatBox.width && audit2.keep && !audit2.standDown && !audit2.pending && audit2.path === "/x/status/5004", { backFromTopEsc, audit2 });
 
+  // Reloading or recovering the post frame onto a normal post while in fullscreen media clears data-xm-post-media.
+  await postFrameOf().evaluate(() => { window.__mediaObs.disconnect(); });
+  await postFrameOf().locator(".focal-photo").click();
+  await p.waitForTimeout(250);
+  await postFrameOf().evaluate((entry) => location.replace(`${entry}?xm-panel=${encodeURIComponent("/x/status/5004")}`), ENTRY).catch(() => {});
+  await p.waitForTimeout(900);
+  const afterDirectReload = await boxOf();
+  const pathAfterDirect = await postFrameOf().evaluate(() => location.pathname);
+  check("reloading the post frame to a normal post clears fullscreen media mode", afterDirectReload.open && !afterDirectReload.media && afterDirectReload.width === floatBox.width && pathAfterDirect === "/x/status/5004", { afterDirectReload, pathAfterDirect });
+
+  await postFrameOf().locator(".focal-photo").click();
+  await p.waitForTimeout(250);
+  await postFrameOf().evaluate(() => location.replace("/notifications")).catch(() => {});
+  await p.waitForTimeout(1100);
+  const afterRecoverReload = await boxOf();
+  const pathAfterRecover = await postFrameOf().evaluate(() => location.pathname);
+  check("recovering a refused post frame also clears fullscreen media mode", afterRecoverReload.open && !afterRecoverReload.media && afterRecoverReload.width === floatBox.width && pathAfterRecover === "/x/status/5004", { afterRecoverReload, pathAfterRecover });
+
   // Clicking a reply inside fullscreen media shrinks back and loads the reply as the new focal post.
-  await postFrameOf().evaluate(() => { window.__mediaObs.disconnect(); window.__chainDelay = 0; });
+  await postFrameOf().evaluate(() => { window.__chainDelay = 0; });
   await postFrameOf().locator(".quoted-photo").click();
   await p.waitForTimeout(250);
   await postFrameOf().locator("#media-reply").click();
@@ -1526,6 +1593,40 @@ await p.waitForTimeout(250);
   check("once at the carousel's edge, further sideways scrolling moves the outer board", afterEdge.board > beforeEdge.board + 5, { beforeEdge, afterEdge });
   await p.evaluate(() => document.getElementById("carousel-wrap")?.remove());
   await p.waitForTimeout(250);
+
+  // RTL multi-photo carousel scrolled leftward from its start (scrollLeft === 0) scrolls the carousel, not the board.
+  const rtlSetup = await p.evaluate(() => {
+    const c = [...document.querySelectorAll("[data-xm-placed]")].find((e) => {
+      if (e.id === "tall") return false;
+      const r = e.getBoundingClientRect();
+      return r.left > 100 && r.right < innerWidth && r.top > 0 && r.bottom < innerHeight;
+    });
+    const wrap = document.createElement("div");
+    wrap.id = "rtl-carousel-wrap";
+    wrap.dataset.testid = "ScrollSnap-SwipeableList";
+    wrap.innerHTML = '<div id="rtl-carousel-list" data-testid="ScrollSnap-List" style="display:flex;direction:rtl;overflow-x:auto;scroll-snap-type:x mandatory;width:100%">' + [1, 2, 3].map((n) => `<div style="flex:0 0 300px;height:60px;scroll-snap-align:start;background:#222">rtl ${n}</div>`).join("") + "</div>";
+    c.querySelector("article").prepend(wrap);
+    const car = document.getElementById("rtl-carousel-list");
+    return { dir: getComputedStyle(car).direction, snap: getComputedStyle(car).scrollSnapType, sl: car.scrollLeft, sw: car.scrollWidth, cw: car.clientWidth };
+  });
+  const rtlBox = await p.locator("#rtl-carousel-list").boundingBox();
+  await p.mouse.move(rtlBox.x + 60, rtlBox.y + 20);
+  await p.waitForTimeout(250);
+  const beforeRtl = await p.evaluate(() => ({ car: document.getElementById("rtl-carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  for (let i = 0; i < 6; i++) { await p.mouse.wheel(-2, 0); await p.waitForTimeout(16); }
+  await p.waitForTimeout(120);
+  const afterRtl = await p.evaluate(() => ({ car: document.getElementById("rtl-carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  check("small leftward wheel steps over an RTL carousel scroll the carousel from scrollLeft 0, not the board", rtlSetup.dir === "rtl" && rtlSetup.snap === "none" && beforeRtl.car === 0 && afterRtl.car < -5 && Math.abs(afterRtl.board - beforeRtl.board) < 2, { rtlSetup, beforeRtl, afterRtl });
+
+  await p.evaluate(() => { const car = document.getElementById("rtl-carousel-list"); car.scrollLeft = -(car.scrollWidth - car.clientWidth); });
+  await p.waitForTimeout(250);
+  const beforeRtlEdge = await p.evaluate(() => ({ car: document.getElementById("rtl-carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  for (let i = 0; i < 6; i++) { await p.mouse.wheel(-2, 0); await p.waitForTimeout(16); }
+  await p.waitForTimeout(120);
+  const afterRtlEdge = await p.evaluate(() => ({ car: document.getElementById("rtl-carousel-list").scrollLeft, board: document.querySelector("[data-xm-board]").scrollLeft }));
+  check("at the RTL carousel's left edge, further leftward scrolling moves the outer board", afterRtlEdge.board < beforeRtlEdge.board - 5, { beforeRtlEdge, afterRtlEdge });
+  await p.evaluate(() => document.getElementById("rtl-carousel-wrap")?.remove());
+  await p.waitForTimeout(250);
 }
 await p.locator("#xm-flow-btn").click();
 await p.waitForTimeout(600);
@@ -1626,6 +1727,47 @@ check("other pages turn everything off", off.path === "/someone" && !off.on && !
   check("but a reload goes back to the default", (await p.evaluate(() => document.documentElement.getAttribute("data-xm-flow"))) === "h");
   await on("flow", "v");
   await p.waitForTimeout(400);
+
+  // switching flow via settings while an overlay is open keeps the background scroll lock intact until close
+  {
+    await p.bringToFront();
+    await p.mouse.move(800, 400);
+    await p.mouse.wheel(0, 1200);
+    await p.waitForTimeout(500);
+    await railLink("Notifications").click();
+    await p.waitForTimeout(500);
+    await on("flow", "h");
+    await p.waitForTimeout(1700); // past b.anchor's 90-frame window
+    const hLocked = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-panel-open"), flow: document.documentElement.getAttribute("data-xm-flow"), sl: document.querySelector("[data-xm-board]").scrollLeft }));
+    await p.evaluate(() => { document.querySelector("[data-xm-board]").scrollLeft = 0; });
+    await p.waitForTimeout(150);
+    await p.mouse.move(1400, 400);
+    await p.mouse.wheel(0, 400);
+    await p.waitForTimeout(200);
+    const slKept = await p.evaluate(() => document.querySelector("[data-xm-board]").scrollLeft);
+    check("switching to sideways flow while the side panel is open keeps the board locked at the anchored column", hLocked.open && hLocked.flow === "h" && hLocked.sl > 200 && slKept === hLocked.sl, { hLocked, slKept });
+
+    await on("flow", "v");
+    await p.waitForTimeout(1700); // past b.anchor's 90-frame window
+    const vLocked = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-panel-open"), flow: document.documentElement.getAttribute("data-xm-flow"), y: window.scrollY }));
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.waitForTimeout(150);
+    await p.mouse.move(1400, 400);
+    await p.mouse.wheel(0, 400);
+    await p.waitForTimeout(200);
+    const yKept = await p.evaluate(() => window.scrollY);
+    await p.bringToFront();
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(300);
+    const afterPanelClose = await p.evaluate(() => ({ open: document.documentElement.hasAttribute("data-xm-panel-open"), y: window.scrollY }));
+    await p.mouse.move(800, 400);
+    await p.mouse.wheel(0, 400);
+    await p.waitForTimeout(250);
+    const yAfterUnlock = await p.evaluate(() => window.scrollY);
+    check("switching back to vertical flow while open keeps vertical scroll locked until the panel closes", vLocked.open && vLocked.flow === null && vLocked.y > 200 && yKept === vLocked.y && !afterPanelClose.open && afterPanelClose.y === vLocked.y && yAfterUnlock > vLocked.y + 150, { vLocked, yKept, afterPanelClose, yAfterUnlock });
+    await p.evaluate(() => window.scrollTo(0, 0));
+    await p.waitForTimeout(300);
+  }
 
   // muted words: in the feed, then out again
   const victim = await p.evaluate(() => { const c = [...document.querySelectorAll("[data-xm-placed]")].filter((e) => e.querySelector("article") && !e.hasAttribute("data-xm-join"))[2]; c.id = "victim"; return c.querySelector('[data-testid="tweetText"]').textContent; });
