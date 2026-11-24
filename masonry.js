@@ -1508,6 +1508,9 @@
       postFrame.setAttribute("sandbox", FRAME_SANDBOX);
       postFrame.setAttribute("allow", FRAME_ALLOW);
       postFrame.dataset.xmHref = href;
+      postFrame.__xmSetMedia = (on) => {
+        if (root.hasAttribute("data-xm-post-open")) toggleAttr("data-xm-post-media", !!on);
+      };
       postFrame.src = panelEntryUrl(href);
       postFrame.addEventListener("load", () => recoverFrame(postFrame));
       postEl.append(postFrame);

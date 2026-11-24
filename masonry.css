@@ -520,6 +520,7 @@ html[data-xm-on][data-xm-post-open][data-xm-post-media] #xm-post {
   width: 100%;
   height: 100%;
   border-radius: 0;
+  background: rgb(0 0 0 / 0.9);
   box-shadow: none;
 }
 

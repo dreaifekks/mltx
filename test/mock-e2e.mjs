@@ -102,6 +102,7 @@ const server = https.createServer({ key: fs.readFileSync(dir + "/k.pem"), cert: 
   hits.push(url);
   if (url === "/i/history" && entryFails) return res.writeHead(503, { "content-type": "text/html" }).end("<!doctype html><h1 id=down>down</h1>");
   if (url === "/favicon.ico") return res.writeHead(204).end();
+  if (url === "/mock-photo.svg") return res.writeHead(200, { "content-type": "image/svg+xml" }).end('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#222"/></svg>');
   if (url === "/robots.txt") return res.writeHead(200, { "content-type": "text/plain;charset=utf-8" }).end("User-agent: *\nDisallow: /");
   if (url === "/sw.js") return res.writeHead(200, { "content-type": "text/javascript" }).end(SW);
   res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY", ...(url === "/i/history" ? { "content-security-policy": "object-src 'none'; script-src-attr 'none'; img-src \"x\" *" } : {}) });
@@ -1311,6 +1312,8 @@ check("buttons on a card don't open it", !(await postState()).open);
     focal.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true, clientX: 100, clientY: 100 }));
     return {
       mediaAttr: document.documentElement.hasAttribute("data-xm-media"),
+      pendingAttr: document.documentElement.hasAttribute("data-xm-media-pending"),
+      focalVis: getComputedStyle(focal).visibility,
       layersZ: Number(getComputedStyle(layers).zIndex),
       actionsZ: Number(getComputedStyle(actions).zIndex),
       hitInLayers: !!(hit && hit.closest("#layers")),
@@ -1318,7 +1321,7 @@ check("buttons on a card don't open it", !(await postState()).open);
     };
   });
   check("clicking a photo inside the post window expands it to full viewport", fullFocal.open && fullFocal.media && fullFocal.left === 0 && fullFocal.top === 0 && fullFocal.width === fullFocal.vw && fullFocal.height === fullFocal.ih && fullFocal.radius === "0px" && floatBox.width < fullFocal.vw, { floatBox, fullFocal });
-  check("fullscreen media places #layers above the pinned action bar and blocks background pane wheel", layerCheck.mediaAttr && layerCheck.layersZ > layerCheck.actionsZ && layerCheck.hitInLayers && !layerCheck.focalMoved, layerCheck);
+  check("fullscreen media places #layers above the pinned action bar, hides underlying panes, and blocks background pane wheel", layerCheck.mediaAttr && !layerCheck.pendingAttr && layerCheck.focalVis === "hidden" && layerCheck.layersZ > layerCheck.actionsZ && layerCheck.hitInLayers && !layerCheck.focalMoved, layerCheck);
 
   // Escape inside the iframe shrinks back to floating post window with layout intact.
   await p.keyboard.press("Escape");
@@ -1326,6 +1329,77 @@ check("buttons on a card don't open it", !(await postState()).open);
   const backFromFocal = await boxOf();
   const audit1 = await postFrameOf().evaluate(() => ({ keep: document.querySelector("[data-xm-focal]")?.__xmKeep === 1, path: location.pathname, ...window.__mediaAudit }));
   check("closing the photo shrinks back to the floating window without tearing down the post view", backFromFocal.open && !backFromFocal.media && backFromFocal.width === floatBox.width && backFromFocal.height === floatBox.height && audit1.keep && !audit1.standDown && !audit1.pending && audit1.path === "/x/status/5004", { backFromFocal, audit1 });
+
+  // Flash-free reveal: synchronous top toggle, dark backdrop, 0x0 wrapper held at opacity 0 until sized, no re-pending on /photo/2, synchronous exit.
+  const staged = await postFrameOf().evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const root = document.documentElement;
+    const topRoot = window.top.document.documentElement;
+    const postEl = window.top.document.querySelector("#xm-post");
+    const layers = document.getElementById("layers");
+    const focal = document.querySelector("[data-xm-focal]");
+    const main = document.querySelector("main");
+
+    history.pushState(null, "", "/x/status/5004/photo/1");
+    const syncEnter = {
+      topMedia: topRoot.hasAttribute("data-xm-post-media"),
+      frameMedia: root.hasAttribute("data-xm-media"),
+      pending: root.hasAttribute("data-xm-media-pending"),
+      postBg: getComputedStyle(postEl).backgroundColor,
+      bodyBg: getComputedStyle(document.body).backgroundColor,
+      focalVis: getComputedStyle(focal).visibility,
+      mainVis: getComputedStyle(main).visibility,
+    };
+
+    layers.style.pointerEvents = "auto";
+    layers.innerHTML = '<div role="dialog" style="position:fixed;inset:0;background:rgba(0,0,0,.9)"><div data-testid="swipe-to-dismiss"><div id="staged-box" style="width:0px;height:0px;overflow:hidden"><img id="staged-img" src="/mock-photo.svg" style="width:100%;height:100%"></div></div></div>';
+    const dialog = layers.querySelector('[role="dialog"]');
+    await sleep(60);
+    const whileZero = {
+      pending: root.hasAttribute("data-xm-media-pending"),
+      opacity: getComputedStyle(dialog).opacity,
+      complete: document.getElementById("staged-img").complete,
+    };
+
+    const box = document.getElementById("staged-box");
+    box.style.width = "400px";
+    box.style.height = "300px";
+    await sleep(160);
+    const afterSized = {
+      pending: root.hasAttribute("data-xm-media-pending"),
+      opacity: getComputedStyle(dialog).opacity,
+    };
+
+    let reEnteredPending = false;
+    const obs = new MutationObserver(() => {
+      if (root.hasAttribute("data-xm-media-pending")) reEnteredPending = true;
+    });
+    obs.observe(root, { attributes: true, attributeFilter: ["data-xm-media-pending"] });
+    history.replaceState(null, "", "/x/status/5004/photo/2");
+    await sleep(60);
+    obs.disconnect();
+    const afterNextPhoto = {
+      reEnteredPending,
+      pending: root.hasAttribute("data-xm-media-pending"),
+      frameMedia: root.hasAttribute("data-xm-media"),
+    };
+
+    layers.innerHTML = "";
+    layers.style.pointerEvents = "none";
+    history.replaceState(null, "", "/x/status/5004");
+    const syncExit = {
+      topMedia: topRoot.hasAttribute("data-xm-post-media"),
+      frameMedia: root.hasAttribute("data-xm-media"),
+      pending: root.hasAttribute("data-xm-media-pending"),
+      focalVis: getComputedStyle(focal).visibility,
+      mainVis: getComputedStyle(main).visibility,
+    };
+    window.__xmFrameHistory.forget();
+    return { syncEnter, whileZero, afterSized, afterNextPhoto, syncExit };
+  });
+  check("entering media toggles fullscreen synchronously with dark backdrop and hidden panes", staged.syncEnter.topMedia && staged.syncEnter.frameMedia && staged.syncEnter.pending && staged.syncEnter.postBg === "rgba(0, 0, 0, 0.9)" && staged.syncEnter.bodyBg === "rgba(0, 0, 0, 0)" && staged.syncEnter.focalVis === "hidden" && staged.syncEnter.mainVis === "hidden", staged.syncEnter);
+  check("fullscreen dialog stays hidden while 0x0 and reveals cleanly once sized and loaded", staged.whileZero.pending && staged.whileZero.opacity === "0" && !staged.afterSized.pending && staged.afterSized.opacity === "1", { whileZero: staged.whileZero, afterSized: staged.afterSized });
+  check("switching to another photo in media mode doesn't re-enter pending, and exit restores synchronously", !staged.afterNextPhoto.reEnteredPending && !staged.afterNextPhoto.pending && staged.afterNextPhoto.frameMedia && !staged.syncExit.topMedia && !staged.syncExit.frameMedia && !staged.syncExit.pending && staged.syncExit.focalVis === "visible" && staged.syncExit.mainVis === "visible", { afterNextPhoto: staged.afterNextPhoto, syncExit: staged.syncExit });
 
   // Clicking a quoted/reply photo (different status ID) also expands without standDown or pending flash.
   await postFrameOf().locator(".quoted-photo").click();

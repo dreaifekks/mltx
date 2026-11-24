@@ -174,6 +174,7 @@ function startPostView() {
   const MEDIA_ROUTE = /^\/(?:[^/]+\/status\/\d+\/(?:photo|video)\/\d+|[^/]+\/(?:photo|header_photo))(?=\/|$)/;
   const CHAIN_TOP = 12; // px above the first post of a conversation
   const PENDING_MS = 3000; // how long to hide a page in between posts if the post doesn't come
+  const MEDIA_READY_TIMEOUT = 250; // ms cap so a slow image never stalls the viewer
   const root = document.documentElement;
   const lists = [];
   let latest = window.scroller;
@@ -186,6 +187,11 @@ function startPostView() {
   let readyFor = null;
   let pendingTimer = 0;
   let mediaOpen = null; // null until the first syncMedia() reports where this load landed
+  let mediaObserver = null;
+  let mediaTimer = 0;
+  let mediaRaf = 0;
+  let mediaImg = null;
+  let mediaImgCleanup = null;
 
   Object.defineProperty(window, "scroller", {
     configurable: true,
@@ -439,16 +445,125 @@ function startPostView() {
     }
   }
 
-  function syncMedia() {
-    const on = MEDIA_ROUTE.test(location.pathname);
-    if (root.hasAttribute("data-xm-media") !== on) root.toggleAttribute("data-xm-media", on);
-    if (on === mediaOpen) return;
-    mediaOpen = on;
+  // Same-origin synchronous toggle keeps #xm-post resizing and iframe CSS in one paint frame.
+  function setTopMedia(on) {
+    try {
+      if (window.frameElement && typeof window.frameElement.__xmSetMedia === "function") {
+        window.frameElement.__xmSetMedia(on);
+        return;
+      }
+    } catch {}
     window.top.postMessage({ xm: "post-media", on }, location.origin);
   }
 
+  function detachMediaImg() {
+    if (mediaImgCleanup) mediaImgCleanup();
+    mediaImg = null;
+    mediaImgCleanup = null;
+  }
+
+  function cancelMediaWait() {
+    if (mediaObserver) {
+      mediaObserver.disconnect();
+      mediaObserver = null;
+    }
+    if (mediaTimer) {
+      clearTimeout(mediaTimer);
+      mediaTimer = 0;
+    }
+    if (mediaRaf) {
+      cancelAnimationFrame(mediaRaf);
+      mediaRaf = 0;
+    }
+    detachMediaImg();
+  }
+
+  function revealMedia() {
+    cancelMediaWait();
+    if (!mediaOpen) return;
+    mediaRaf = requestAnimationFrame(() => {
+      mediaRaf = 0;
+      if (mediaOpen) root.removeAttribute("data-xm-media-pending");
+    });
+  }
+
+  function primaryMediaImage(dialog) {
+    return dialog.querySelector('[data-testid="swipe-to-dismiss"] img') || [...dialog.querySelectorAll("img")].find((i) => !i.closest("article")) || null;
+  }
+
+  function watchMediaImg(img) {
+    if (img === mediaImg) return;
+    detachMediaImg();
+    mediaImg = img;
+    const onDone = () => {
+      if (mediaOpen && root.hasAttribute("data-xm-media-pending")) checkMediaReady();
+    };
+    img.addEventListener("load", onDone, { once: true });
+    img.addEventListener("error", onDone, { once: true });
+    mediaImgCleanup = () => {
+      img.removeEventListener("load", onDone);
+      img.removeEventListener("error", onDone);
+    };
+  }
+
+  function checkMediaReady() {
+    if (!mediaOpen || !root.hasAttribute("data-xm-media-pending")) return;
+    const dialog = document.querySelector('#layers [role="dialog"], [role="dialog"]');
+    if (!dialog) return;
+    if (dialog.querySelector("video")) {
+      if (dialog.offsetWidth > 0) revealMedia();
+      return;
+    }
+    const img = primaryMediaImage(dialog);
+    if (img) {
+      // X's ImageModal mounts the image wrapper at 0x0 and sizes it on a later layout pass.
+      if (img.complete && img.naturalWidth > 0 && img.offsetWidth > 0 && img.offsetHeight > 0) {
+        revealMedia();
+      } else if (!img.complete) {
+        watchMediaImg(img);
+      } else if (img.naturalWidth === 0) {
+        revealMedia();
+      }
+      return;
+    }
+    if (dialog.querySelector('[data-testid="swipe-to-dismiss"]')) return;
+    if (dialog.offsetWidth > 0) revealMedia();
+  }
+
+  function waitForMediaReady() {
+    cancelMediaWait();
+    const target = document.getElementById("layers") || document.body || root;
+    mediaObserver = new MutationObserver(checkMediaReady);
+    mediaObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
+    mediaTimer = setTimeout(revealMedia, MEDIA_READY_TIMEOUT);
+    checkMediaReady();
+  }
+
+  function syncMedia() {
+    const on = MEDIA_ROUTE.test(location.pathname);
+    if (!on) {
+      cancelMediaWait();
+      root.removeAttribute("data-xm-media-pending");
+      root.removeAttribute("data-xm-media");
+      if (mediaOpen !== false) {
+        mediaOpen = false;
+        setTopMedia(false);
+      }
+      return;
+    }
+    if (mediaOpen === true) return;
+    mediaOpen = true;
+    root.setAttribute("data-xm-media", "");
+    root.setAttribute("data-xm-media-pending", "");
+    setTopMedia(true);
+    waitForMediaReady();
+  }
+
   function tick() {
-    if (windowClosed()) return;
+    if (windowClosed()) {
+      cancelMediaWait();
+      return;
+    }
     syncMedia();
     if (mediaOpen) return;
     const match = STATUS.exec(location.pathname);
