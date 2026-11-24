@@ -1938,13 +1938,17 @@ check("other pages turn everything off", off.path === "/someone" && !off.on && !
   {
     const verState = () => popup.evaluate(async () => {
       const btn = document.getElementById("version");
+      const label = document.getElementById("versionLabel");
       const h1 = document.querySelector("h1").getBoundingClientRect();
-      const r = btn.getBoundingClientRect();
+      const target = btn.hidden ? label : btn;
+      const r = target.getBoundingClientRect();
       const box = document.getElementById("changelog");
       const storage = await chrome.storage.local.get(["settings", "seenVersion"]);
       return {
         text: btn.textContent,
         hidden: btn.hidden,
+        labelText: label.textContent,
+        labelHidden: label.hidden,
         unread: btn.hasAttribute("data-unread"),
         dotBg: getComputedStyle(btn, "::after").backgroundColor,
         expanded: btn.getAttribute("aria-expanded"),
@@ -1957,61 +1961,80 @@ check("other pages turn everything off", off.path === "/someone" && !off.on && !
         items: [...document.querySelectorAll("#changelogList li")].map((li) => li.textContent),
         seenVersion: storage.seenVersion,
         hasSettings: storage.settings !== undefined,
-        noNotes: __xmI18n.changelog("en", "0.4.2"),
+        noNotes: __xmI18n.changelog("en", "0.0.0"),
       };
     });
 
-    // Fresh install: no settings and no seenVersion -> no unread dot, seenVersion recorded silently.
+    const currentVer = JSON.parse(fs.readFileSync(path.join(ext, "manifest.json"), "utf8")).version;
+    const sample043 = await popup.evaluate(() => ({
+      zh: __xmI18n.changelog("zh", "0.4.3"),
+      en: __xmI18n.changelog("en", "0.4.3"),
+      ja: __xmI18n.changelog("ja", "0.4.3"),
+      none: __xmI18n.changelog("en", "0.0.0"),
+    }));
+    check("0.4.3 changelog entries exist in zh, en, and ja, and unknown versions return null", Array.isArray(sample043.zh) && sample043.zh.length === 4 && Array.isArray(sample043.en) && sample043.en.length === 4 && Array.isArray(sample043.ja) && sample043.ja.length === 4 && sample043.none === null, sample043);
+
+    const notes = await popup.evaluate((v) => ({
+      zh: __xmI18n.changelog("zh", v),
+      en: __xmI18n.changelog("en", v),
+      ja: __xmI18n.changelog("ja", v),
+    }), currentVer);
+
+    // Fresh install: no settings and no seenVersion -> no unread dot, seenVersion recorded silently when notes exist.
     await popup.evaluate(() => chrome.storage.local.remove(["settings", "seenVersion"]));
     await popup.reload();
     await popup.waitForTimeout(250);
     const fresh = await verState();
-    check("a fresh install shows the version in the top-right with no unread dot and records seenVersion", fresh.text === "v0.4.3" && !fresh.hidden && !fresh.unread && !fresh.panelOpen && fresh.topRight && fresh.w === 320 && fresh.seenVersion === "0.4.3" && !fresh.hasSettings && fresh.noNotes === null, fresh);
+    if (notes.en) {
+      check("a fresh install shows the version in the top-right with no unread dot and records seenVersion", fresh.text === `v${currentVer}` && !fresh.hidden && fresh.labelHidden && !fresh.unread && !fresh.panelOpen && fresh.topRight && fresh.w === 320 && fresh.seenVersion === currentVer && !fresh.hasSettings && fresh.noNotes === null, fresh);
 
-    // Existing user upgrading from <= 0.4.2 (settings exist, no seenVersion) -> unread dot shows.
-    await popup.evaluate(async () => {
-      await chrome.storage.local.remove("seenVersion");
-      await chrome.storage.local.set({ settings: { flow: "v" } });
-    });
-    await popup.reload();
-    await popup.waitForTimeout(250);
-    const fromLegacy = await verState();
-    check("upgrading from a version before seenVersion shows the unread dot", fromLegacy.unread && fromLegacy.dotBg === "rgb(29, 155, 240)" && !fromLegacy.panelOpen, fromLegacy);
+      // Existing user upgrading from before seenVersion (settings exist, no seenVersion) -> unread dot shows.
+      await popup.evaluate(async () => {
+        await chrome.storage.local.remove("seenVersion");
+        await chrome.storage.local.set({ settings: { flow: "v" } });
+      });
+      await popup.reload();
+      await popup.waitForTimeout(250);
+      const fromLegacy = await verState();
+      check("upgrading from a version before seenVersion shows the unread dot", fromLegacy.unread && fromLegacy.dotBg === "rgb(29, 155, 240)" && !fromLegacy.panelOpen, fromLegacy);
 
-    // Existing user upgrading from 0.4.2 -> unread dot shows, opening clears it and updates live with language.
-    await popup.evaluate(() => chrome.storage.local.set({ seenVersion: "0.4.2" }));
-    await popup.reload();
-    await popup.waitForTimeout(250);
-    const beforeOpen = await verState();
-    await popup.locator("#version").click();
-    await popup.waitForTimeout(150);
-    const openedZh = await verState();
-    check("clicking the upgraded version button expands the changelog, clears the dot, and saves seenVersion", beforeOpen.unread && openedZh.panelOpen && !openedZh.unread && openedZh.expanded === "true" && openedZh.seenVersion === "0.4.3" && openedZh.title === "v0.4.3 更新内容" && openedZh.tip === "更新内容" && openedZh.closeLabel === "关闭" && openedZh.items.length === 4 && openedZh.w === 320, { beforeOpen, openedZh });
+      // Existing user upgrading from an earlier seenVersion -> unread dot shows, opening clears it and updates live with language.
+      await popup.evaluate(() => chrome.storage.local.set({ seenVersion: "0.0.1" }));
+      await popup.reload();
+      await popup.waitForTimeout(250);
+      const beforeOpen = await verState();
+      await popup.locator("#version").click();
+      await popup.waitForTimeout(150);
+      const openedZh = await verState();
+      check("clicking the upgraded version button expands the changelog, clears the dot, and saves seenVersion", beforeOpen.unread && openedZh.panelOpen && !openedZh.unread && openedZh.expanded === "true" && openedZh.seenVersion === currentVer && openedZh.title === `v${currentVer} 更新内容` && openedZh.tip === "更新内容" && openedZh.closeLabel === "关闭" && JSON.stringify(openedZh.items) === JSON.stringify(notes.zh) && openedZh.w === 320, { beforeOpen, openedZh });
 
-    await popup.locator("#lang").selectOption("en");
-    await popup.waitForTimeout(150);
-    const openedEn = await verState();
-    await popup.locator("#lang").selectOption("ja");
-    await popup.waitForTimeout(150);
-    const openedJa = await verState();
-    await popup.locator("#lang").selectOption("auto");
-    await popup.waitForTimeout(150);
-    const openedAuto = await verState();
-    check("switching language updates the changelog title, labels, and items live", openedEn.title === "What's new in v0.4.3" && openedEn.tip === "What's new" && openedEn.closeLabel === "Close" && openedEn.items.length === 4 && openedEn.items[0].includes("Lock background feed scroll") && openedJa.title === "v0.4.3 の新機能" && openedJa.closeLabel === "閉じる" && openedJa.items.length === 4 && openedJa.items[0].includes("投稿ウィンドウ") && openedAuto.title === "v0.4.3 更新内容", { openedEn, openedJa, openedAuto });
+      await popup.locator("#lang").selectOption("en");
+      await popup.waitForTimeout(150);
+      const openedEn = await verState();
+      await popup.locator("#lang").selectOption("ja");
+      await popup.waitForTimeout(150);
+      const openedJa = await verState();
+      await popup.locator("#lang").selectOption("auto");
+      await popup.waitForTimeout(150);
+      const openedAuto = await verState();
+      check("switching language updates the changelog title, labels, and items live", openedEn.title === `What's new in v${currentVer}` && openedEn.tip === "What's new" && openedEn.closeLabel === "Close" && JSON.stringify(openedEn.items) === JSON.stringify(notes.en) && openedJa.title === `v${currentVer} の新機能` && openedJa.closeLabel === "閉じる" && JSON.stringify(openedJa.items) === JSON.stringify(notes.ja) && openedAuto.title === `v${currentVer} 更新内容`, { openedEn, openedJa, openedAuto });
 
-    await popup.locator("#changelogClose").click();
-    await popup.waitForTimeout(100);
-    const closed = await verState();
-    await popup.reload();
-    await popup.waitForTimeout(250);
-    const reopened = await verState();
-    await popup.locator("#version").click();
-    await popup.waitForTimeout(100);
-    const toggledOpen = await verState();
-    await popup.locator("#version").click();
-    await popup.waitForTimeout(100);
-    const toggledClosed = await verState();
-    check("after viewing, the unread dot stays gone on reopen while the changelog remains toggleable", !closed.panelOpen && closed.expanded === "false" && !reopened.unread && !reopened.panelOpen && toggledOpen.panelOpen && toggledOpen.items.length === 4 && !toggledClosed.panelOpen, { closed, reopened, toggledOpen, toggledClosed });
+      await popup.locator("#changelogClose").click();
+      await popup.waitForTimeout(100);
+      const closed = await verState();
+      await popup.reload();
+      await popup.waitForTimeout(250);
+      const reopened = await verState();
+      await popup.locator("#version").click();
+      await popup.waitForTimeout(100);
+      const toggledOpen = await verState();
+      await popup.locator("#version").click();
+      await popup.waitForTimeout(100);
+      const toggledClosed = await verState();
+      check("after viewing, the unread dot stays gone on reopen while the changelog remains toggleable", !closed.panelOpen && closed.expanded === "false" && !reopened.unread && !reopened.panelOpen && toggledOpen.panelOpen && toggledOpen.items.length === notes.zh.length && !toggledClosed.panelOpen, { closed, reopened, toggledOpen, toggledClosed });
+    } else {
+      check("without changelog entries for the current version, only the plain version label shows", fresh.hidden && !fresh.labelHidden && fresh.labelText === `v${currentVer}` && !fresh.unread && !fresh.panelOpen && fresh.topRight && fresh.w === 320, fresh);
+    }
   }
 
   await popup.evaluate(() => chrome.storage.local.set({ settings: {} }));
