@@ -1352,9 +1352,16 @@ check("buttons on a card don't open it", !(await postState()).open);
     };
 
     layers.style.pointerEvents = "auto";
-    layers.innerHTML = '<div role="dialog" style="position:fixed;inset:0;background:rgba(0,0,0,.9)"><div data-testid="swipe-to-dismiss"><div id="staged-box" style="width:0px;height:0px;overflow:hidden"><img id="staged-img" src="/mock-photo.svg" style="width:100%;height:100%"></div></div></div>';
+    layers.innerHTML = '<div role="dialog" style="position:fixed;inset:0;background:rgba(0,0,0,.9)"><div data-testid="swipe-to-dismiss"></div><div data-testid="UserAvatar-Container-me"><img src="/mock-photo.svg" style="width:40px;height:40px"></div><article data-testid="tweet"><video style="width:120px;height:80px"></video></article></div>';
     const dialog = layers.querySelector('[role="dialog"]');
-    await sleep(60);
+    await sleep(40);
+    const whileEmptyStage = {
+      pending: root.hasAttribute("data-xm-media-pending"),
+      opacity: getComputedStyle(dialog).opacity,
+    };
+
+    dialog.querySelector('[data-testid="swipe-to-dismiss"]').innerHTML = '<div id="staged-box" style="width:0px;height:0px;overflow:hidden"><img id="staged-img" src="/mock-photo.svg" style="width:100%;height:100%"></div>';
+    await sleep(50);
     const whileZero = {
       pending: root.hasAttribute("data-xm-media-pending"),
       opacity: getComputedStyle(dialog).opacity,
@@ -1395,10 +1402,10 @@ check("buttons on a card don't open it", !(await postState()).open);
       mainVis: getComputedStyle(main).visibility,
     };
     window.__xmFrameHistory.forget();
-    return { syncEnter, whileZero, afterSized, afterNextPhoto, syncExit };
+    return { syncEnter, whileEmptyStage, whileZero, afterSized, afterNextPhoto, syncExit };
   });
   check("entering media toggles fullscreen synchronously with dark backdrop and hidden panes", staged.syncEnter.topMedia && staged.syncEnter.frameMedia && staged.syncEnter.pending && staged.syncEnter.postBg === "rgba(0, 0, 0, 0.9)" && staged.syncEnter.bodyBg === "rgba(0, 0, 0, 0)" && staged.syncEnter.focalVis === "hidden" && staged.syncEnter.mainVis === "hidden", staged.syncEnter);
-  check("fullscreen dialog stays hidden while 0x0 and reveals cleanly once sized and loaded", staged.whileZero.pending && staged.whileZero.opacity === "0" && !staged.afterSized.pending && staged.afterSized.opacity === "1", { whileZero: staged.whileZero, afterSized: staged.afterSized });
+  check("fullscreen dialog ignores reply video and avatar, stays hidden while empty or 0x0, and reveals once sized", staged.whileEmptyStage.pending && staged.whileEmptyStage.opacity === "0" && staged.whileZero.pending && staged.whileZero.opacity === "0" && !staged.afterSized.pending && staged.afterSized.opacity === "1", { whileEmptyStage: staged.whileEmptyStage, whileZero: staged.whileZero, afterSized: staged.afterSized });
   check("switching to another photo in media mode doesn't re-enter pending, and exit restores synchronously", !staged.afterNextPhoto.reEnteredPending && !staged.afterNextPhoto.pending && staged.afterNextPhoto.frameMedia && !staged.syncExit.topMedia && !staged.syncExit.frameMedia && !staged.syncExit.pending && staged.syncExit.focalVis === "visible" && staged.syncExit.mainVis === "visible", { afterNextPhoto: staged.afterNextPhoto, syncExit: staged.syncExit });
 
   // Clicking a quoted/reply photo (different status ID) also expands without standDown or pending flash.

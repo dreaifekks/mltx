@@ -488,7 +488,7 @@ function startPostView() {
   }
 
   function primaryMediaImage(dialog) {
-    return dialog.querySelector('[data-testid="swipe-to-dismiss"] img') || [...dialog.querySelectorAll("img")].find((i) => !i.closest("article")) || null;
+    return [...dialog.querySelectorAll("img")].find((i) => !i.closest("article") && !i.closest('[data-testid^="UserAvatar-Container-"]')) || null;
   }
 
   function watchMediaImg(img) {
@@ -510,11 +510,14 @@ function startPostView() {
     if (!mediaOpen || !root.hasAttribute("data-xm-media-pending")) return;
     const dialog = document.querySelector('#layers [role="dialog"], [role="dialog"]');
     if (!dialog) return;
-    if (dialog.querySelector("video")) {
-      if (dialog.offsetWidth > 0) revealMedia();
+    const stage = dialog.querySelector('[data-testid="swipe-to-dismiss"]');
+    const scope = stage || dialog;
+    const video = [...scope.querySelectorAll("video")].find((v) => !v.closest("article"));
+    if (video) {
+      if (video.offsetWidth > 0 && video.offsetHeight > 0) revealMedia();
       return;
     }
-    const img = primaryMediaImage(dialog);
+    const img = stage ? stage.querySelector("img") : primaryMediaImage(dialog);
     if (img) {
       // X's ImageModal mounts the image wrapper at 0x0 and sizes it on a later layout pass.
       if (img.complete && img.naturalWidth > 0 && img.offsetWidth > 0 && img.offsetHeight > 0) {
@@ -526,7 +529,7 @@ function startPostView() {
       }
       return;
     }
-    if (dialog.querySelector('[data-testid="swipe-to-dismiss"]')) return;
+    if (stage) return;
     if (dialog.offsetWidth > 0) revealMedia();
   }
 
